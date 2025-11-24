@@ -1,0 +1,67 @@
+error:
+  authentication:
+    failed: "Authentication failed"
+    invalid_token: "Invalid authentication token"
+    token_expired: "Authentication token has expired"
+    unauthorized: "Unauthorized access"
+  
+  authorization:
+    forbidden: "Access forbidden"
+    insufficient_roles: "Insufficient roles for this action"
+    insufficient_actions: "Insufficient permissions for this action"
+  
+  validation:
+    failed: "Validation failed"
+    invalid_input: "Invalid input provided"
+    missing_field: "Required field '{{field}}' is missing"
+    invalid_format: "Field '{{field}}' has invalid format, expected: {{format}}"
+    file_too_large: "File size exceeds maximum allowed"
+    invalid_file_type: "Invalid file type"
+  
+  request:
+    too_large: "Request size exceeds maximum allowed ({{max_size}} bytes)"
+    timeout: "Request timeout exceeded ({{timeout}})"
+    bogus_data: "Invalid or malformed data detected: {{reason}}"
+  
+  rate_limit:
+    exceeded: "Rate limit exceeded ({{limit}} requests per {{window}})"
+  
+  security:
+    csrf_invalid: "CSRF token is invalid"
+    xss_detected: "XSS attack detected"
+    sql_injection_detected: "SQL injection attempt detected"
+  
+  database:
+    connection: "Database connection failed"
+    query: "Database query failed"
+    transaction: "Database transaction failed"
+    record_not_found: "Record not found"
+    duplicate_record: "Duplicate record"
+  
+  session:
+    not_found: "Session not found"
+    expired: "Session has expired"
+    invalid: "Invalid session"
+  
+  configuration:
+    error: "Configuration error for '{{key}}': {{reason}}"
+    missing: "Missing required configuration"
+  
+  internal:
+    server: "Internal server error"
+    service_unavailable: "Service temporarily unavailable"
+    not_implemented: "Feature not implemented"
+  
+  tenant:
+    not_found: "Tenant not found"
+    inactive: "Tenant is inactive"
+    limit_exceeded: "Tenant limit exceeded"
+  
+  websocket:
+    upgrade_failed: "WebSocket upgrade failed"
+    connection_closed: "WebSocket connection closed"
+    auth_required: "WebSocket authentication required"
+    invalid_message: "Invalid WebSocket message"
+  
+  not_found: "{{resource}} not found"
+  method_not_allowed: "Method {{method}} not allowed"
