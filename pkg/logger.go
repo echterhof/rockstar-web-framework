@@ -1,13 +1,21 @@
 package pkg
 
 import (
+	"context"
 	"io"
 	"log/slog"
+	"os"
+	"sync"
 )
 
 // standardLogger implements the Logger interface using slog
 type standardLogger struct {
 	logger    *slog.Logger
+	handler   slog.Handler
+	level     slog.Level
+	output    io.Writer
+	formatter LogFormatter
+	mu        sync.RWMutex
 	requestID string
 	tenantID  string
 	userID    string
@@ -19,8 +27,16 @@ func NewLogger(logger *slog.Logger) Logger {
 		logger = slog.Default()
 	}
 
+	// Extract handler and level from the logger
+	handler := logger.Handler()
+	output := os.Stderr // Default output
+
 	return &standardLogger{
-		logger: logger,
+		logger:    logger,
+		handler:   handler,
+		level:     slog.LevelInfo,
+		output:    output,
+		formatter: nil,
 	}
 }
 
@@ -150,24 +166,137 @@ func (l *standardLogger) ErrorI18n(key string, params ...interface{}) {
 
 // SetLevel sets the log level
 func (l *standardLogger) SetLevel(level string) error {
-	// TODO: Implement level setting
+	// Parse level string to slog.Level
+	var slogLevel slog.Level
+	switch level {
+	case "debug":
+		slogLevel = slog.LevelDebug
+	case "info":
+		slogLevel = slog.LevelInfo
+	case "warn":
+		slogLevel = slog.LevelWarn
+	case "error":
+		slogLevel = slog.LevelError
+	case "fatal":
+		slogLevel = slog.LevelError // Fatal maps to error level
+	default:
+		return &FrameworkError{
+			Code:    "invalid_log_level",
+			Message: "invalid log level: must be one of debug, info, warn, error, fatal",
+			Details: map[string]interface{}{"provided_level": level},
+		}
+	}
+
+	// Update logger's level atomically
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.level = slogLevel
+
+	// Create new handler with updated level
+	opts := &slog.HandlerOptions{
+		Level: slogLevel,
+	}
+
+	var newHandler slog.Handler
+	if l.formatter != nil {
+		// If we have a custom formatter, wrap the handler
+		newHandler = &formatterHandler{
+			handler:   slog.NewTextHandler(l.output, opts),
+			formatter: l.formatter,
+		}
+	} else {
+		newHandler = slog.NewTextHandler(l.output, opts)
+	}
+
+	l.handler = newHandler
+	l.logger = slog.New(newHandler)
+
 	return nil
 }
 
 // GetLevel returns the current log level
 func (l *standardLogger) GetLevel() string {
-	return "info"
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	switch l.level {
+	case slog.LevelDebug:
+		return "debug"
+	case slog.LevelInfo:
+		return "info"
+	case slog.LevelWarn:
+		return "warn"
+	case slog.LevelError:
+		return "error"
+	default:
+		return "info"
+	}
 }
 
 // SetOutput sets the output writer
 func (l *standardLogger) SetOutput(output io.Writer) error {
-	// TODO: Implement output setting
+	// Handle nil writer gracefully
+	if output == nil {
+		output = os.Stderr
+	}
+
+	// Update logger atomically
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.output = output
+
+	// Create new handler with updated output
+	opts := &slog.HandlerOptions{
+		Level: l.level,
+	}
+
+	var newHandler slog.Handler
+	if l.formatter != nil {
+		// If we have a custom formatter, wrap the handler
+		newHandler = &formatterHandler{
+			handler:   slog.NewTextHandler(output, opts),
+			formatter: l.formatter,
+		}
+	} else {
+		newHandler = slog.NewTextHandler(output, opts)
+	}
+
+	l.handler = newHandler
+	l.logger = slog.New(newHandler)
+
 	return nil
 }
 
 // SetFormatter sets the log formatter
 func (l *standardLogger) SetFormatter(formatter LogFormatter) error {
-	// TODO: Implement formatter setting
+	// Update logger atomically
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.formatter = formatter
+
+	// Create new handler with formatter
+	opts := &slog.HandlerOptions{
+		Level: l.level,
+	}
+
+	var newHandler slog.Handler
+	if formatter != nil {
+		// Wrap handler to apply custom formatting
+		newHandler = &formatterHandler{
+			handler:   slog.NewTextHandler(l.output, opts),
+			formatter: formatter,
+		}
+	} else {
+		// No formatter, use plain handler
+		newHandler = slog.NewTextHandler(l.output, opts)
+	}
+
+	l.handler = newHandler
+	l.logger = slog.New(newHandler)
+
 	return nil
 }
 
@@ -186,4 +315,43 @@ func (l *standardLogger) contextAttrs() []slog.Attr {
 	}
 
 	return attrs
+}
+
+// formatterHandler wraps a slog.Handler to apply custom formatting
+type formatterHandler struct {
+	handler   slog.Handler
+	formatter LogFormatter
+}
+
+func (h *formatterHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.handler.Enabled(ctx, level)
+}
+
+func (h *formatterHandler) Handle(ctx context.Context, record slog.Record) error {
+	// Apply custom formatting
+	levelStr := record.Level.String()
+	formatted := h.formatter.Format(levelStr, record.Message)
+
+	// Create a new record with formatted message
+	newRecord := slog.NewRecord(record.Time, record.Level, formatted, record.PC)
+	record.Attrs(func(attr slog.Attr) bool {
+		newRecord.AddAttrs(attr)
+		return true
+	})
+
+	return h.handler.Handle(ctx, newRecord)
+}
+
+func (h *formatterHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &formatterHandler{
+		handler:   h.handler.WithAttrs(attrs),
+		formatter: h.formatter,
+	}
+}
+
+func (h *formatterHandler) WithGroup(name string) slog.Handler {
+	return &formatterHandler{
+		handler:   h.handler.WithGroup(name),
+		formatter: h.formatter,
+	}
 }

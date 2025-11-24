@@ -2,8 +2,12 @@ package pkg
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
+
+	// Import SQLite driver for tests
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestFrameworkCreation(t *testing.T) {
@@ -26,6 +30,8 @@ func TestFrameworkCreation(t *testing.T) {
 			StorageType:     SessionStorageCache,
 			CookieName:      "test_session",
 			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
 		},
 		I18nConfig: I18nConfig{
 			DefaultLocale:    "en",
@@ -102,6 +108,13 @@ func TestFrameworkMiddleware(t *testing.T) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	app, err := New(config)
@@ -130,6 +143,13 @@ func TestFrameworkLifecycleHooks(t *testing.T) {
 		DatabaseConfig: DatabaseConfig{
 			Driver:   "sqlite",
 			Database: ":memory:",
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
 		},
 	}
 
@@ -170,6 +190,13 @@ func TestFrameworkErrorHandler(t *testing.T) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	app, err := New(config)
@@ -197,6 +224,13 @@ func TestFrameworkRouting(t *testing.T) {
 		DatabaseConfig: DatabaseConfig{
 			Driver:   "sqlite",
 			Database: ":memory:",
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
 		},
 	}
 
@@ -238,6 +272,13 @@ func TestFrameworkShutdown(t *testing.T) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	app, err := New(config)
@@ -276,6 +317,13 @@ func TestFrameworkIsRunning(t *testing.T) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	app, err := New(config)
@@ -298,6 +346,13 @@ func BenchmarkFrameworkCreation(b *testing.B) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	b.ResetTimer()
@@ -318,6 +373,13 @@ func BenchmarkFrameworkRouteRegistration(b *testing.B) {
 			Driver:   "sqlite",
 			Database: ":memory:",
 		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
 	}
 
 	app, err := New(config)
@@ -334,4 +396,266 @@ func BenchmarkFrameworkRouteRegistration(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		router.GET("/test", handler)
 	}
+}
+
+func TestFrameworkWithConfigFiles(t *testing.T) {
+	// Create a temporary config file
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/test_config.json"
+
+	configContent := `{
+		"app": {
+			"name": "test-app",
+			"version": "1.0.0"
+		},
+		"server": {
+			"port": 8080,
+			"host": "localhost"
+		},
+		"database": {
+			"driver": "postgres",
+			"host": "localhost"
+		}
+	}`
+
+	err := writeFile(configPath, []byte(configContent))
+	if err != nil {
+		t.Fatalf("Failed to create test config file: %v", err)
+	}
+
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite",
+			Database: ":memory:",
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"), // 32 bytes
+		},
+		ConfigFiles: []string{configPath},
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework with config files: %v", err)
+	}
+
+	if app == nil {
+		t.Fatal("Framework instance is nil")
+	}
+
+	if app.Config() == nil {
+		t.Fatal("Config manager is nil")
+	}
+
+	// Verify configuration was loaded
+	appName := app.Config().GetString("app.name")
+	if appName != "test-app" {
+		t.Errorf("Expected app.name to be 'test-app', got '%s'", appName)
+	}
+
+	serverPort := app.Config().GetInt("server.port")
+	if serverPort != 8080 {
+		t.Errorf("Expected server.port to be 8080, got %d", serverPort)
+	}
+
+	dbDriver := app.Config().GetString("database.driver")
+	if dbDriver != "postgres" {
+		t.Errorf("Expected database.driver to be 'postgres', got '%s'", dbDriver)
+	}
+}
+
+func TestFrameworkWithoutConfigFiles(t *testing.T) {
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite",
+			Database: ":memory:",
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"), // 32 bytes
+		},
+		ConfigFiles: []string{}, // No config files
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework without config files: %v", err)
+	}
+
+	if app == nil {
+		t.Fatal("Framework instance is nil")
+	}
+
+	if app.Config() == nil {
+		t.Fatal("Config manager should not be nil even without config files")
+	}
+
+	// Config should be empty but functional
+	nonExistentValue := app.Config().GetString("non.existent.key")
+	if nonExistentValue != "" {
+		t.Errorf("Expected empty string for non-existent key, got '%s'", nonExistentValue)
+	}
+}
+
+func TestFrameworkWithInvalidConfigFile(t *testing.T) {
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite",
+			Database: ":memory:",
+		},
+		ConfigFiles: []string{"/non/existent/config.json"},
+	}
+
+	app, err := New(config)
+	if err == nil {
+		t.Fatal("Expected error when loading non-existent config file")
+	}
+
+	if app != nil {
+		t.Error("Framework instance should be nil when config loading fails")
+	}
+}
+
+func TestFrameworkWithMultipleConfigFiles(t *testing.T) {
+	// Create temporary config files
+	tmpDir := t.TempDir()
+
+	config1Path := tmpDir + "/config1.json"
+	config1Content := `{
+		"app": {
+			"name": "test-app"
+		},
+		"feature1": {
+			"enabled": true
+		}
+	}`
+
+	config2Path := tmpDir + "/config2.yaml"
+	config2Content := `
+app:
+  version: "2.0.0"
+feature2:
+  enabled: true
+`
+
+	err := writeFile(config1Path, []byte(config1Content))
+	if err != nil {
+		t.Fatalf("Failed to create config1: %v", err)
+	}
+
+	err = writeFile(config2Path, []byte(config2Content))
+	if err != nil {
+		t.Fatalf("Failed to create config2: %v", err)
+	}
+
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite",
+			Database: ":memory:",
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"), // 32 bytes
+		},
+		ConfigFiles: []string{config1Path, config2Path},
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework with multiple config files: %v", err)
+	}
+
+	if app == nil {
+		t.Fatal("Framework instance is nil")
+	}
+
+	// Verify second config was loaded (it replaces the first)
+	appVersion := app.Config().GetString("app.version")
+	if appVersion != "2.0.0" {
+		t.Errorf("Expected app.version to be '2.0.0', got '%s'", appVersion)
+	}
+
+	// feature1 should NOT be present since config2 replaced config1
+	feature1Enabled := app.Config().GetBool("feature1.enabled")
+	if feature1Enabled {
+		t.Error("Expected feature1.enabled to be false (config was replaced)")
+	}
+
+	// feature2 should be present from config2
+	feature2Enabled := app.Config().GetBool("feature2.enabled")
+	if !feature2Enabled {
+		t.Error("Expected feature2.enabled to be true")
+	}
+}
+
+func TestFrameworkWithMalformedConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/malformed.json"
+
+	// Invalid JSON
+	configContent := `{
+		"app": {
+			"name": "test-app"
+		// missing closing brace
+	`
+
+	err := writeFile(configPath, []byte(configContent))
+	if err != nil {
+		t.Fatalf("Failed to create malformed config file: %v", err)
+	}
+
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite",
+			Database: ":memory:",
+		},
+		ConfigFiles: []string{configPath},
+	}
+
+	app, err := New(config)
+	if err == nil {
+		t.Fatal("Expected error when loading malformed config file")
+	}
+
+	if app != nil {
+		t.Error("Framework instance should be nil when config parsing fails")
+	}
+}
+
+// Helper function to write files
+func writeFile(path string, data []byte) error {
+	// Use os package to write file
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = file.Write(data)
+	return err
 }

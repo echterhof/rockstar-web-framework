@@ -47,6 +47,8 @@ func (c *configManager) Load(configPath string) error {
 
 	var parsed map[string]interface{}
 	switch ext {
+	case ".json":
+		parsed, err = parseJSON(data)
 	case ".ini":
 		parsed, err = parseINI(data)
 	case ".toml":

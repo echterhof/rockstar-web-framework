@@ -1,3 +1,6 @@
+//go:build test
+// +build test
+
 package pkg
 
 import (
@@ -84,27 +87,6 @@ func (m *mockDatabaseManager) Begin() (Transaction, error) {
 
 func (m *mockDatabaseManager) BeginTx(opts *sql.TxOptions) (Transaction, error) {
 	return m.Begin()
-}
-
-// Model operations
-func (m *mockDatabaseManager) Save(model interface{}) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (m *mockDatabaseManager) Find(model interface{}, conditions ...Condition) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (m *mockDatabaseManager) FindAll(models interface{}, conditions ...Condition) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (m *mockDatabaseManager) Delete(model interface{}) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (m *mockDatabaseManager) Update(model interface{}, updates map[string]interface{}) error {
-	return fmt.Errorf("not implemented")
 }
 
 // Session operations

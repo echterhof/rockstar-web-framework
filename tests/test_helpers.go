@@ -244,17 +244,9 @@ func (m *testMockDB) Begin() (pkg.Transaction, error)         { return nil, nil 
 func (m *testMockDB) BeginTx(opts *sql.TxOptions) (pkg.Transaction, error) {
 	return nil, nil
 }
-func (m *testMockDB) Save(model interface{}) error { return nil }
-func (m *testMockDB) Find(model interface{}, conditions ...pkg.Condition) error {
-	return nil
-}
-func (m *testMockDB) FindAll(models interface{}, conditions ...pkg.Condition) error {
-	return nil
-}
-func (m *testMockDB) Delete(model interface{}) error { return nil }
-func (m *testMockDB) Update(model interface{}, updates map[string]interface{}) error {
-	return nil
-}
+
+// Note: Save, Find, FindAll, Delete, Update are not part of DatabaseManager interface
+// They were removed as they're not used by the framework
 func (m *testMockDB) Migrate() error      { return nil }
 func (m *testMockDB) CreateTables() error { return nil }
 func (m *testMockDB) DropTables() error   { return nil }

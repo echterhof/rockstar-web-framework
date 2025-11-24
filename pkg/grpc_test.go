@@ -94,34 +94,29 @@ func (m *mockGRPCDB) IncrementRateLimit(key string, window time.Duration) error 
 	m.rateLimits[key]++
 	return nil
 }
-func (m *mockGRPCDB) Connect(config DatabaseConfig) error                            { return nil }
-func (m *mockGRPCDB) Close() error                                                   { return nil }
-func (m *mockGRPCDB) Ping() error                                                    { return nil }
-func (m *mockGRPCDB) Stats() DatabaseStats                                           { return DatabaseStats{} }
-func (m *mockGRPCDB) Query(query string, args ...interface{}) (*sql.Rows, error)     { return nil, nil }
-func (m *mockGRPCDB) QueryRow(query string, args ...interface{}) *sql.Row            { return nil }
-func (m *mockGRPCDB) Exec(query string, args ...interface{}) (sql.Result, error)     { return nil, nil }
-func (m *mockGRPCDB) Prepare(query string) (*sql.Stmt, error)                        { return nil, nil }
-func (m *mockGRPCDB) Begin() (Transaction, error)                                    { return nil, nil }
-func (m *mockGRPCDB) BeginTx(opts *sql.TxOptions) (Transaction, error)               { return nil, nil }
-func (m *mockGRPCDB) Save(model interface{}) error                                   { return nil }
-func (m *mockGRPCDB) Find(model interface{}, conditions ...Condition) error          { return nil }
-func (m *mockGRPCDB) FindAll(models interface{}, conditions ...Condition) error      { return nil }
-func (m *mockGRPCDB) Delete(model interface{}) error                                 { return nil }
-func (m *mockGRPCDB) Update(model interface{}, updates map[string]interface{}) error { return nil }
-func (m *mockGRPCDB) SaveSession(session *Session) error                             { return nil }
-func (m *mockGRPCDB) LoadSession(sessionID string) (*Session, error)                 { return nil, nil }
-func (m *mockGRPCDB) DeleteSession(sessionID string) error                           { return nil }
-func (m *mockGRPCDB) CleanupExpiredSessions() error                                  { return nil }
-func (m *mockGRPCDB) SaveAccessToken(token *AccessToken) error                       { return nil }
-func (m *mockGRPCDB) LoadAccessToken(tokenValue string) (*AccessToken, error)        { return nil, nil }
-func (m *mockGRPCDB) ValidateAccessToken(tokenValue string) (*AccessToken, error)    { return nil, nil }
-func (m *mockGRPCDB) DeleteAccessToken(tokenValue string) error                      { return nil }
-func (m *mockGRPCDB) CleanupExpiredTokens() error                                    { return nil }
-func (m *mockGRPCDB) SaveTenant(tenant *Tenant) error                                { return nil }
-func (m *mockGRPCDB) LoadTenant(tenantID string) (*Tenant, error)                    { return nil, nil }
-func (m *mockGRPCDB) LoadTenantByHost(hostname string) (*Tenant, error)              { return nil, nil }
-func (m *mockGRPCDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error             { return nil }
+func (m *mockGRPCDB) Connect(config DatabaseConfig) error                         { return nil }
+func (m *mockGRPCDB) Close() error                                                { return nil }
+func (m *mockGRPCDB) Ping() error                                                 { return nil }
+func (m *mockGRPCDB) Stats() DatabaseStats                                        { return DatabaseStats{} }
+func (m *mockGRPCDB) Query(query string, args ...interface{}) (*sql.Rows, error)  { return nil, nil }
+func (m *mockGRPCDB) QueryRow(query string, args ...interface{}) *sql.Row         { return nil }
+func (m *mockGRPCDB) Exec(query string, args ...interface{}) (sql.Result, error)  { return nil, nil }
+func (m *mockGRPCDB) Prepare(query string) (*sql.Stmt, error)                     { return nil, nil }
+func (m *mockGRPCDB) Begin() (Transaction, error)                                 { return nil, nil }
+func (m *mockGRPCDB) BeginTx(opts *sql.TxOptions) (Transaction, error)            { return nil, nil }
+func (m *mockGRPCDB) SaveSession(session *Session) error                          { return nil }
+func (m *mockGRPCDB) LoadSession(sessionID string) (*Session, error)              { return nil, nil }
+func (m *mockGRPCDB) DeleteSession(sessionID string) error                        { return nil }
+func (m *mockGRPCDB) CleanupExpiredSessions() error                               { return nil }
+func (m *mockGRPCDB) SaveAccessToken(token *AccessToken) error                    { return nil }
+func (m *mockGRPCDB) LoadAccessToken(tokenValue string) (*AccessToken, error)     { return nil, nil }
+func (m *mockGRPCDB) ValidateAccessToken(tokenValue string) (*AccessToken, error) { return nil, nil }
+func (m *mockGRPCDB) DeleteAccessToken(tokenValue string) error                   { return nil }
+func (m *mockGRPCDB) CleanupExpiredTokens() error                                 { return nil }
+func (m *mockGRPCDB) SaveTenant(tenant *Tenant) error                             { return nil }
+func (m *mockGRPCDB) LoadTenant(tenantID string) (*Tenant, error)                 { return nil, nil }
+func (m *mockGRPCDB) LoadTenantByHost(hostname string) (*Tenant, error)           { return nil, nil }
+func (m *mockGRPCDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error          { return nil }
 func (m *mockGRPCDB) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
 	return nil, nil
 }

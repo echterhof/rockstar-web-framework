@@ -456,34 +456,29 @@ func (m *mockDB) IncrementRateLimit(key string, window time.Duration) error {
 }
 
 // Implement other DatabaseManager methods as no-ops
-func (m *mockDB) Connect(config DatabaseConfig) error                            { return nil }
-func (m *mockDB) Close() error                                                   { return nil }
-func (m *mockDB) Ping() error                                                    { return nil }
-func (m *mockDB) Stats() DatabaseStats                                           { return DatabaseStats{} }
-func (m *mockDB) Query(query string, args ...interface{}) (*sql.Rows, error)     { return nil, nil }
-func (m *mockDB) QueryRow(query string, args ...interface{}) *sql.Row            { return nil }
-func (m *mockDB) Exec(query string, args ...interface{}) (sql.Result, error)     { return nil, nil }
-func (m *mockDB) Prepare(query string) (*sql.Stmt, error)                        { return nil, nil }
-func (m *mockDB) Begin() (Transaction, error)                                    { return nil, nil }
-func (m *mockDB) BeginTx(opts *sql.TxOptions) (Transaction, error)               { return nil, nil }
-func (m *mockDB) Save(model interface{}) error                                   { return nil }
-func (m *mockDB) Find(model interface{}, conditions ...Condition) error          { return nil }
-func (m *mockDB) FindAll(models interface{}, conditions ...Condition) error      { return nil }
-func (m *mockDB) Delete(model interface{}) error                                 { return nil }
-func (m *mockDB) Update(model interface{}, updates map[string]interface{}) error { return nil }
-func (m *mockDB) SaveSession(session *Session) error                             { return nil }
-func (m *mockDB) LoadSession(sessionID string) (*Session, error)                 { return nil, nil }
-func (m *mockDB) DeleteSession(sessionID string) error                           { return nil }
-func (m *mockDB) CleanupExpiredSessions() error                                  { return nil }
-func (m *mockDB) SaveAccessToken(token *AccessToken) error                       { return nil }
-func (m *mockDB) LoadAccessToken(tokenValue string) (*AccessToken, error)        { return nil, nil }
-func (m *mockDB) ValidateAccessToken(tokenValue string) (*AccessToken, error)    { return nil, nil }
-func (m *mockDB) DeleteAccessToken(tokenValue string) error                      { return nil }
-func (m *mockDB) CleanupExpiredTokens() error                                    { return nil }
-func (m *mockDB) SaveTenant(tenant *Tenant) error                                { return nil }
-func (m *mockDB) LoadTenant(tenantID string) (*Tenant, error)                    { return nil, nil }
-func (m *mockDB) LoadTenantByHost(hostname string) (*Tenant, error)              { return nil, nil }
-func (m *mockDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error             { return nil }
+func (m *mockDB) Connect(config DatabaseConfig) error                         { return nil }
+func (m *mockDB) Close() error                                                { return nil }
+func (m *mockDB) Ping() error                                                 { return nil }
+func (m *mockDB) Stats() DatabaseStats                                        { return DatabaseStats{} }
+func (m *mockDB) Query(query string, args ...interface{}) (*sql.Rows, error)  { return nil, nil }
+func (m *mockDB) QueryRow(query string, args ...interface{}) *sql.Row         { return nil }
+func (m *mockDB) Exec(query string, args ...interface{}) (sql.Result, error)  { return nil, nil }
+func (m *mockDB) Prepare(query string) (*sql.Stmt, error)                     { return nil, nil }
+func (m *mockDB) Begin() (Transaction, error)                                 { return nil, nil }
+func (m *mockDB) BeginTx(opts *sql.TxOptions) (Transaction, error)            { return nil, nil }
+func (m *mockDB) SaveSession(session *Session) error                          { return nil }
+func (m *mockDB) LoadSession(sessionID string) (*Session, error)              { return nil, nil }
+func (m *mockDB) DeleteSession(sessionID string) error                        { return nil }
+func (m *mockDB) CleanupExpiredSessions() error                               { return nil }
+func (m *mockDB) SaveAccessToken(token *AccessToken) error                    { return nil }
+func (m *mockDB) LoadAccessToken(tokenValue string) (*AccessToken, error)     { return nil, nil }
+func (m *mockDB) ValidateAccessToken(tokenValue string) (*AccessToken, error) { return nil, nil }
+func (m *mockDB) DeleteAccessToken(tokenValue string) error                   { return nil }
+func (m *mockDB) CleanupExpiredTokens() error                                 { return nil }
+func (m *mockDB) SaveTenant(tenant *Tenant) error                             { return nil }
+func (m *mockDB) LoadTenant(tenantID string) (*Tenant, error)                 { return nil, nil }
+func (m *mockDB) LoadTenantByHost(hostname string) (*Tenant, error)           { return nil, nil }
+func (m *mockDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error          { return nil }
 func (m *mockDB) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
 	return nil, nil
 }
@@ -635,5 +630,307 @@ func BenchmarkRESTError(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		err := NewRESTError("TEST_ERROR", "Test message", 400)
 		_ = err.WithDetails(map[string]interface{}{"field": "value"})
+	}
+}
+
+// Unit tests for REST API scope middleware
+
+// TestAuthMiddleware_WithValidScopes tests middleware with valid scopes
+func TestAuthMiddleware_WithValidScopes(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a user with required scopes
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{"users:read", "users:write", "posts:read"},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with required scopes that user has
+	middleware := manager.authMiddleware([]string{"users:read", "posts:read"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	if !handlerCalled {
+		t.Error("Expected handler to be called")
+	}
+}
+
+// TestAuthMiddleware_WithMissingScopes tests middleware with missing scopes
+func TestAuthMiddleware_WithMissingScopes(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a user missing some required scopes
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{"users:read"},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should NOT be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with required scopes that user doesn't have
+	middleware := manager.authMiddleware([]string{"users:read", "users:write", "posts:delete"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err == nil {
+		t.Error("Expected error for missing scopes, got nil")
+	}
+	if handlerCalled {
+		t.Error("Expected handler NOT to be called")
+	}
+}
+
+// TestAuthMiddleware_WithWildcardScope tests middleware with wildcard scope
+func TestAuthMiddleware_WithWildcardScope(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a user with wildcard scope
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{"*"},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with any required scopes - wildcard should grant access
+	middleware := manager.authMiddleware([]string{"admin:delete", "system:shutdown", "any:scope"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err != nil {
+		t.Errorf("Expected no error with wildcard scope, got: %v", err)
+	}
+	if !handlerCalled {
+		t.Error("Expected handler to be called with wildcard scope")
+	}
+}
+
+// TestAuthMiddleware_WithHierarchicalScopes tests middleware with hierarchical scope matching
+func TestAuthMiddleware_WithHierarchicalScopes(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a user with base scope
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{"admin", "users"},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with hierarchical scopes - "admin" should match "admin:read"
+	middleware := manager.authMiddleware([]string{"admin:read", "users:write"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err != nil {
+		t.Errorf("Expected no error with hierarchical scope matching, got: %v", err)
+	}
+	if !handlerCalled {
+		t.Error("Expected handler to be called with hierarchical scope matching")
+	}
+}
+
+// TestAuthMiddleware_WithEmptyScopeList tests middleware with empty scope list
+func TestAuthMiddleware_WithEmptyScopeList(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a user with no scopes
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with empty required scopes - should allow access
+	middleware := manager.authMiddleware([]string{}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err != nil {
+		t.Errorf("Expected no error with empty scope list, got: %v", err)
+	}
+	if !handlerCalled {
+		t.Error("Expected handler to be called with empty scope list")
+	}
+}
+
+// TestAuthMiddleware_WithoutAuthentication tests middleware without authentication
+func TestAuthMiddleware_WithoutAuthentication(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+	manager := NewRESTAPIManagerWithAuth(router, db, authManager).(*restAPIManager)
+
+	// Create a mock context without authentication
+	ctx := &mockContext{
+		user:            nil,
+		isAuthenticated: false,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should NOT be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware - should fail authentication check
+	middleware := manager.authMiddleware([]string{"users:read"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err == nil {
+		t.Error("Expected error for unauthenticated request, got nil")
+	}
+	if handlerCalled {
+		t.Error("Expected handler NOT to be called for unauthenticated request")
+	}
+}
+
+// TestAuthMiddleware_WithoutAuthManager tests middleware fallback when AuthManager is not available
+func TestAuthMiddleware_WithoutAuthManager(t *testing.T) {
+	// Setup
+	router := newMockRouter()
+	db := newMockDB()
+	manager := NewRESTAPIManager(router, db).(*restAPIManager) // No AuthManager
+
+	// Create a user with required scopes
+	user := &User{
+		ID:       "user123",
+		Scopes:   []string{"users:read", "users:write"},
+		TenantID: "tenant456",
+	}
+
+	// Create a mock context with authenticated user
+	ctx := &mockContext{
+		user:            user,
+		isAuthenticated: true,
+		request: &Request{
+			ID: "test-request-id",
+		},
+	}
+
+	// Create handler that should be called
+	handlerCalled := false
+	handler := func(c Context) error {
+		handlerCalled = true
+		return nil
+	}
+
+	// Test middleware with manual scope checking (fallback)
+	middleware := manager.authMiddleware([]string{"users:read"}, handler)
+	err := middleware(ctx)
+
+	// Assert
+	if err != nil {
+		t.Errorf("Expected no error with manual scope checking, got: %v", err)
+	}
+	if !handlerCalled {
+		t.Error("Expected handler to be called with manual scope checking")
 	}
 }

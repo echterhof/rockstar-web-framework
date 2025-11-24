@@ -79,6 +79,7 @@ const (
 	ErrCodeForbidden           = "FORBIDDEN"
 	ErrCodeInsufficientRoles   = "INSUFFICIENT_ROLES"
 	ErrCodeInsufficientActions = "INSUFFICIENT_ACTIONS"
+	ErrCodeInsufficientScopes  = "INSUFFICIENT_SCOPES"
 
 	// Validation errors
 	ErrCodeValidationFailed = "VALIDATION_FAILED"

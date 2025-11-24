@@ -95,17 +95,6 @@ func (m *MockDatabaseManager) Begin() (Transaction, error)             { return 
 func (m *MockDatabaseManager) BeginTx(opts *sql.TxOptions) (Transaction, error) {
 	return nil, nil
 }
-func (m *MockDatabaseManager) Save(model interface{}) error { return nil }
-func (m *MockDatabaseManager) Find(model interface{}, conditions ...Condition) error {
-	return nil
-}
-func (m *MockDatabaseManager) FindAll(models interface{}, conditions ...Condition) error {
-	return nil
-}
-func (m *MockDatabaseManager) Delete(model interface{}) error { return nil }
-func (m *MockDatabaseManager) Update(model interface{}, updates map[string]interface{}) error {
-	return nil
-}
 func (m *MockDatabaseManager) SaveTenant(tenant *Tenant) error { return nil }
 func (m *MockDatabaseManager) LoadTenant(tenantID string) (*Tenant, error) {
 	return nil, nil
@@ -1146,4 +1135,231 @@ func TestAuthorize_NilUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for nil user, got nil")
 	}
+}
+
+// Property-based tests for scope authorization
+// Feature: todo-implementations, Property 1: Complete scope verification
+// Validates: Requirements 1.1
+func TestProperty_CompleteScopeVerification(t *testing.T) {
+	db := NewMockDatabaseManager()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+
+	// Property: For any user and any set of required scopes, when all required scopes
+	// are present in the user's scope list, authorization should succeed
+	property := func(userScopes []string, requiredScopes []string) bool {
+		// Skip if no required scopes (trivial case)
+		if len(requiredScopes) == 0 {
+			return true
+		}
+
+		// Create user with all required scopes plus potentially more
+		allScopes := make([]string, len(userScopes))
+		copy(allScopes, userScopes)
+
+		// Ensure all required scopes are in user's scopes
+		scopeMap := make(map[string]bool)
+		for _, s := range allScopes {
+			scopeMap[s] = true
+		}
+		for _, rs := range requiredScopes {
+			if !scopeMap[rs] {
+				allScopes = append(allScopes, rs)
+			}
+		}
+
+		user := &User{
+			ID:       "test-user",
+			Scopes:   allScopes,
+			TenantID: "test-tenant",
+		}
+
+		// Test authorization - should succeed
+		err := authManager.AuthorizeAllScopes(user, requiredScopes)
+		return err == nil
+	}
+
+	// Run property test with 100 iterations
+	for i := 0; i < 100; i++ {
+		// Generate random scopes
+		userScopes := generateRandomScopes(i % 10)
+		requiredScopes := generateRandomScopes((i % 5) + 1)
+
+		if !property(userScopes, requiredScopes) {
+			t.Errorf("Property failed: user with all required scopes should be authorized")
+			t.Errorf("User scopes: %v, Required scopes: %v", userScopes, requiredScopes)
+		}
+	}
+}
+
+// Feature: todo-implementations, Property 2: Missing scope detection
+// Validates: Requirements 1.2
+func TestProperty_MissingScopeDetection(t *testing.T) {
+	db := NewMockDatabaseManager()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+
+	// Property: For any user missing at least one required scope, authorization should
+	// fail with a 403 response containing details about the missing scopes
+	property := func(userScopes []string, missingScope string) bool {
+		// Skip if missing scope is in user scopes
+		for _, s := range userScopes {
+			if s == missingScope {
+				return true // Skip this test case
+			}
+		}
+
+		user := &User{
+			ID:       "test-user",
+			Scopes:   userScopes,
+			TenantID: "test-tenant",
+		}
+
+		// Test authorization with a scope the user doesn't have
+		err := authManager.AuthorizeAllScopes(user, []string{missingScope})
+
+		if err == nil {
+			return false // Should have failed
+		}
+
+		// Check that it's a FrameworkError with correct code and status
+		frameworkErr, ok := err.(*FrameworkError)
+		if !ok {
+			return false
+		}
+
+		if frameworkErr.Code != ErrCodeInsufficientScopes {
+			return false
+		}
+
+		if frameworkErr.StatusCode != 403 {
+			return false
+		}
+
+		// Check that missing scopes are reported in details
+		if details, ok := frameworkErr.Details["missing_scopes"].([]string); ok {
+			if len(details) == 0 {
+				return false
+			}
+			// Verify the missing scope is in the details
+			found := false
+			for _, ms := range details {
+				if ms == missingScope {
+					found = true
+					break
+				}
+			}
+			return found
+		}
+
+		return false
+	}
+
+	// Run property test with 100 iterations
+	for i := 0; i < 100; i++ {
+		userScopes := generateRandomScopes(i % 10)
+		missingScope := generateRandomScope(i + 1000)
+
+		if !property(userScopes, missingScope) {
+			t.Errorf("Property failed: user missing required scope should get 403 with details")
+			t.Errorf("User scopes: %v, Missing scope: %s", userScopes, missingScope)
+		}
+	}
+}
+
+// Feature: todo-implementations, Property 3: Wildcard scope grants universal access
+// Validates: Requirements 1.4
+func TestProperty_WildcardScopeGrantsUniversalAccess(t *testing.T) {
+	db := NewMockDatabaseManager()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+
+	// Property: For any user with the wildcard scope "*", authorization should succeed
+	// regardless of which scopes are required
+	property := func(requiredScopes []string) bool {
+		// Skip empty required scopes
+		if len(requiredScopes) == 0 {
+			return true
+		}
+
+		user := &User{
+			ID:       "test-user",
+			Scopes:   []string{"*"},
+			TenantID: "test-tenant",
+		}
+
+		// Test authorization - should always succeed with wildcard
+		err := authManager.AuthorizeAllScopes(user, requiredScopes)
+		return err == nil
+	}
+
+	// Run property test with 100 iterations
+	for i := 0; i < 100; i++ {
+		requiredScopes := generateRandomScopes((i % 10) + 1)
+
+		if !property(requiredScopes) {
+			t.Errorf("Property failed: wildcard scope should grant access to all scopes")
+			t.Errorf("Required scopes: %v", requiredScopes)
+		}
+	}
+}
+
+// Feature: todo-implementations, Property 4: Hierarchical scope matching
+// Validates: Requirements 1.5
+func TestProperty_HierarchicalScopeMatching(t *testing.T) {
+	db := NewMockDatabaseManager()
+	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
+
+	// Property: For any user scope in hierarchical format (e.g., "admin"), it should
+	// match any required scope with that prefix (e.g., "admin:read", "admin:write")
+	property := func(baseScope string, subAction string) bool {
+		// Skip empty inputs
+		if baseScope == "" || subAction == "" {
+			return true
+		}
+
+		// Create hierarchical scope
+		hierarchicalScope := baseScope + ":" + subAction
+
+		user := &User{
+			ID:       "test-user",
+			Scopes:   []string{baseScope},
+			TenantID: "test-tenant",
+		}
+
+		// Test authorization - base scope should match hierarchical scope
+		err := authManager.AuthorizeScope(user, hierarchicalScope)
+		return err == nil
+	}
+
+	// Run property test with 100 iterations
+	for i := 0; i < 100; i++ {
+		baseScope := generateRandomScope(i)
+		subAction := generateRandomScope(i + 500)
+
+		if !property(baseScope, subAction) {
+			t.Errorf("Property failed: base scope should match hierarchical scope")
+			t.Errorf("Base scope: %s, Sub-action: %s", baseScope, subAction)
+		}
+	}
+}
+
+// Helper functions for generating random test data
+func generateRandomScopes(count int) []string {
+	if count <= 0 {
+		return []string{}
+	}
+
+	scopes := make([]string, count)
+	for i := 0; i < count; i++ {
+		scopes[i] = generateRandomScope(i)
+	}
+	return scopes
+}
+
+func generateRandomScope(seed int) string {
+	resources := []string{"users", "posts", "comments", "admin", "api", "data", "files"}
+	actions := []string{"read", "write", "delete", "create", "update", "list"}
+
+	resource := resources[seed%len(resources)]
+	action := actions[(seed/len(resources))%len(actions)]
+
+	return resource + ":" + action
 }

@@ -11,6 +11,7 @@ import (
 type restAPIManager struct {
 	router      RouterEngine
 	db          DatabaseManager
+	authManager *AuthManager
 	middleware  []RESTMiddleware
 	prefix      string
 	rateLimiter *rateLimiter
@@ -21,6 +22,19 @@ func NewRESTAPIManager(router RouterEngine, db DatabaseManager) RESTAPIManager {
 	return &restAPIManager{
 		router:      router,
 		db:          db,
+		authManager: nil, // Will be set later if needed
+		middleware:  make([]RESTMiddleware, 0),
+		prefix:      "",
+		rateLimiter: newRateLimiter(db),
+	}
+}
+
+// NewRESTAPIManagerWithAuth creates a new REST API manager with AuthManager
+func NewRESTAPIManagerWithAuth(router RouterEngine, db DatabaseManager, authManager *AuthManager) RESTAPIManager {
+	return &restAPIManager{
+		router:      router,
+		db:          db,
+		authManager: authManager,
 		middleware:  make([]RESTMiddleware, 0),
 		prefix:      "",
 		rateLimiter: newRateLimiter(db),
@@ -170,22 +184,86 @@ func (r *restAPIManager) globalRateLimitMiddleware(config *RESTRateLimitConfig, 
 func (r *restAPIManager) authMiddleware(requiredScopes []string, next RESTHandler) RESTHandler {
 	return func(ctx Context) error {
 		if !ctx.IsAuthenticated() {
-			return r.SendErrorResponse(ctx, 401, "Authentication required", nil)
+			r.SendErrorResponse(ctx, 401, "Authentication required", nil)
+			return NewAuthenticationError("Authentication required")
 		}
 
 		// Check required scopes if specified
 		if len(requiredScopes) > 0 {
 			user := ctx.User()
 			if user == nil {
-				return r.SendErrorResponse(ctx, 401, "User not found", nil)
+				r.SendErrorResponse(ctx, 401, "User not found", nil)
+				return NewAuthorizationError("User not found")
 			}
 
-			// TODO: Implement scope checking logic
-			// For now, just check if user is authenticated
+			// Use AuthManager to check scopes if available
+			if r.authManager != nil {
+				err := r.authManager.AuthorizeAllScopes(user, requiredScopes)
+				if err != nil {
+					// Extract error details for response
+					if frameworkErr, ok := err.(*FrameworkError); ok {
+						r.SendErrorResponse(ctx, frameworkErr.StatusCode, frameworkErr.Message, frameworkErr.Details)
+					} else {
+						r.SendErrorResponse(ctx, 403, "Insufficient scopes", nil)
+					}
+					return err
+				}
+			} else {
+				// Fallback: manual scope checking if AuthManager not available
+				if err := r.checkScopesManually(ctx, user, requiredScopes); err != nil {
+					return err
+				}
+			}
 		}
 
 		return next(ctx)
 	}
+}
+
+// checkScopesManually performs manual scope checking when AuthManager is not available
+func (r *restAPIManager) checkScopesManually(ctx Context, user *User, requiredScopes []string) error {
+	// Check for wildcard scope
+	for _, scope := range user.Scopes {
+		if scope == "*" {
+			return nil
+		}
+	}
+
+	// Check if user has all required scopes
+	missingScopes := []string{}
+	for _, requiredScope := range requiredScopes {
+		found := false
+		for _, userScope := range user.Scopes {
+			// Exact match or hierarchical match
+			if userScope == requiredScope || strings.HasPrefix(requiredScope, userScope+":") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingScopes = append(missingScopes, requiredScope)
+		}
+	}
+
+	if len(missingScopes) > 0 {
+		r.SendErrorResponse(ctx, 403, "Insufficient scopes", map[string]interface{}{
+			"required_scopes": requiredScopes,
+			"missing_scopes":  missingScopes,
+			"user_scopes":     user.Scopes,
+		})
+		return &FrameworkError{
+			Code:       ErrCodeInsufficientScopes,
+			Message:    "Insufficient scopes",
+			StatusCode: 403,
+			Details: map[string]interface{}{
+				"required_scopes": requiredScopes,
+				"missing_scopes":  missingScopes,
+				"user_scopes":     user.Scopes,
+			},
+		}
+	}
+
+	return nil
 }
 
 // validationMiddleware validates request size and timeout
@@ -366,6 +444,7 @@ func (r *restAPIManager) Group(prefix string, middleware ...RESTMiddleware) REST
 	newManager := &restAPIManager{
 		router:      r.router,
 		db:          r.db,
+		authManager: r.authManager,
 		middleware:  append(r.middleware, middleware...),
 		prefix:      r.prefix + prefix,
 		rateLimiter: r.rateLimiter,

@@ -25,13 +25,6 @@ type DatabaseManager interface {
 	Begin() (Transaction, error)
 	BeginTx(opts *sql.TxOptions) (Transaction, error)
 
-	// Model operations (ORM-like interface)
-	Save(model interface{}) error
-	Find(model interface{}, conditions ...Condition) error
-	FindAll(models interface{}, conditions ...Condition) error
-	Delete(model interface{}) error
-	Update(model interface{}, updates map[string]interface{}) error
-
 	// Framework-specific model operations
 	SaveSession(session *Session) error
 	LoadSession(sessionID string) (*Session, error)
@@ -97,14 +90,6 @@ type DatabaseStats struct {
 	WaitDuration      time.Duration `json:"wait_duration"`
 	MaxIdleClosed     int64         `json:"max_idle_closed"`
 	MaxLifetimeClosed int64         `json:"max_lifetime_closed"`
-}
-
-// Condition represents a query condition for model operations
-type Condition struct {
-	Field    string      `json:"field"`
-	Operator string      `json:"operator"` // =, !=, >, <, >=, <=, IN, LIKE, etc.
-	Value    interface{} `json:"value"`
-	Logic    string      `json:"logic"` // AND, OR
 }
 
 // Session represents a user session stored in database

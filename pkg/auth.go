@@ -34,6 +34,7 @@ type User struct {
 	Email      string                 `json:"email"`
 	Roles      []string               `json:"roles"`
 	Actions    []string               `json:"actions"`
+	Scopes     []string               `json:"scopes"`
 	TenantID   string                 `json:"tenant_id"`
 	Metadata   map[string]interface{} `json:"metadata"`
 	AuthMethod string                 `json:"auth_method"`
@@ -48,6 +49,7 @@ type JWTClaims struct {
 	Email     string                 `json:"email"`
 	Roles     []string               `json:"roles"`
 	Actions   []string               `json:"actions"`
+	Scopes    []string               `json:"scopes"`
 	TenantID  string                 `json:"tenant_id"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	IssuedAt  int64                  `json:"iat"`
@@ -94,6 +96,7 @@ func (am *AuthManager) AuthenticateOAuth2(token string) (*User, error) {
 		ID:         accessToken.UserID,
 		TenantID:   accessToken.TenantID,
 		Roles:      accessToken.Scopes,
+		Scopes:     accessToken.Scopes,
 		AuthMethod: "OAuth2",
 		AuthTime:   time.Now(),
 		ExpiresAt:  accessToken.ExpiresAt,
@@ -132,6 +135,7 @@ func (am *AuthManager) AuthenticateJWT(token string) (*User, error) {
 		Email:      claims.Email,
 		Roles:      claims.Roles,
 		Actions:    claims.Actions,
+		Scopes:     claims.Scopes,
 		TenantID:   claims.TenantID,
 		Metadata:   claims.Metadata,
 		AuthMethod: "JWT",
@@ -219,6 +223,7 @@ func (am *AuthManager) GenerateJWT(user *User, expiresIn time.Duration) (string,
 		Email:     user.Email,
 		Roles:     user.Roles,
 		Actions:   user.Actions,
+		Scopes:    user.Scopes,
 		TenantID:  user.TenantID,
 		Metadata:  user.Metadata,
 		IssuedAt:  now.Unix(),
@@ -564,6 +569,163 @@ func (am *AuthManager) Authorize(user *User, requiredRoles []string, requiredAct
 	if len(requiredActions) > 0 {
 		if err := am.AuthorizeActions(user, requiredActions); err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// HasWildcardScope checks if a user has the wildcard scope "*"
+func (am *AuthManager) HasWildcardScope(user *User) bool {
+	if user == nil {
+		return false
+	}
+
+	for _, scope := range user.Scopes {
+		if scope == "*" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// MatchesHierarchicalScope checks if a user scope matches a required scope hierarchically
+// For example, "admin" matches "admin:read" and "admin:write"
+func (am *AuthManager) MatchesHierarchicalScope(userScope, requiredScope string) bool {
+	// Exact match
+	if userScope == requiredScope {
+		return true
+	}
+
+	// Hierarchical match: userScope is a prefix of requiredScope followed by ":"
+	if strings.HasPrefix(requiredScope, userScope+":") {
+		return true
+	}
+
+	return false
+}
+
+// AuthorizeScope checks if a user has the required scope (Scope-Based Access Control)
+// Requirements: 1.1, 1.4, 1.5
+func (am *AuthManager) AuthorizeScope(user *User, requiredScope string) error {
+	if user == nil {
+		return NewAuthorizationError("user is required for authorization")
+	}
+
+	if requiredScope == "" {
+		return NewAuthorizationError("required scope is empty")
+	}
+
+	// Check for wildcard scope
+	if am.HasWildcardScope(user) {
+		return nil
+	}
+
+	// Check if user has the required scope (exact or hierarchical match)
+	for _, userScope := range user.Scopes {
+		if am.MatchesHierarchicalScope(userScope, requiredScope) {
+			return nil
+		}
+	}
+
+	return &FrameworkError{
+		Code:       ErrCodeInsufficientScopes,
+		Message:    fmt.Sprintf("user does not have required scope: %s", requiredScope),
+		StatusCode: 403,
+		I18nKey:    "error.authorization.insufficient_scopes",
+		Details: map[string]interface{}{
+			"required_scope": requiredScope,
+			"user_scopes":    user.Scopes,
+		},
+		UserID:   user.ID,
+		TenantID: user.TenantID,
+	}
+}
+
+// AuthorizeScopes checks if a user has any of the required scopes (any-of matching)
+// Requirements: 1.1, 1.4, 1.5
+func (am *AuthManager) AuthorizeScopes(user *User, requiredScopes []string) error {
+	if user == nil {
+		return NewAuthorizationError("user is required for authorization")
+	}
+
+	if len(requiredScopes) == 0 {
+		return NewAuthorizationError("required scopes list is empty")
+	}
+
+	// Check for wildcard scope
+	if am.HasWildcardScope(user) {
+		return nil
+	}
+
+	// Check if user has any of the required scopes
+	for _, userScope := range user.Scopes {
+		for _, requiredScope := range requiredScopes {
+			if am.MatchesHierarchicalScope(userScope, requiredScope) {
+				return nil
+			}
+		}
+	}
+
+	return &FrameworkError{
+		Code:       ErrCodeInsufficientScopes,
+		Message:    fmt.Sprintf("user does not have any of the required scopes: %v", requiredScopes),
+		StatusCode: 403,
+		I18nKey:    "error.authorization.insufficient_scopes",
+		Details: map[string]interface{}{
+			"required_scopes": requiredScopes,
+			"user_scopes":     user.Scopes,
+		},
+		UserID:   user.ID,
+		TenantID: user.TenantID,
+	}
+}
+
+// AuthorizeAllScopes checks if a user has all of the required scopes (all-of matching)
+// Requirements: 1.1, 1.2, 1.4, 1.5
+func (am *AuthManager) AuthorizeAllScopes(user *User, requiredScopes []string) error {
+	if user == nil {
+		return NewAuthorizationError("user is required for authorization")
+	}
+
+	if len(requiredScopes) == 0 {
+		return NewAuthorizationError("required scopes list is empty")
+	}
+
+	// Check for wildcard scope
+	if am.HasWildcardScope(user) {
+		return nil
+	}
+
+	// Check if user has all required scopes
+	missingScopes := []string{}
+	for _, requiredScope := range requiredScopes {
+		found := false
+		for _, userScope := range user.Scopes {
+			if am.MatchesHierarchicalScope(userScope, requiredScope) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingScopes = append(missingScopes, requiredScope)
+		}
+	}
+
+	if len(missingScopes) > 0 {
+		return &FrameworkError{
+			Code:       ErrCodeInsufficientScopes,
+			Message:    fmt.Sprintf("user is missing required scopes: %v", missingScopes),
+			StatusCode: 403,
+			I18nKey:    "error.authorization.insufficient_scopes",
+			Details: map[string]interface{}{
+				"required_scopes": requiredScopes,
+				"missing_scopes":  missingScopes,
+				"user_scopes":     user.Scopes,
+			},
+			UserID:   user.ID,
+			TenantID: user.TenantID,
 		}
 	}
 

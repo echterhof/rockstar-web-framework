@@ -760,18 +760,118 @@ func (s *securityManagerImpl) DecryptCookie(encryptedValue string) (string, erro
 	return string(plaintext), nil
 }
 
-// Rate limiting methods (stubs - will be implemented with database)
+// Rate limiting methods
 
 // CheckRateLimit checks rate limit for a specific resource
 func (s *securityManagerImpl) CheckRateLimit(ctx Context, resource string) error {
-	// TODO: Implement with database-backed rate limiting
+	// Get client identifier (IP address or user ID)
+	clientID := s.getClientIdentifier(ctx)
+
+	// Create rate limit key for this resource
+	rateLimitKey := fmt.Sprintf("ratelimit:%s:%s", clientID, resource)
+
+	// Default rate limit: 100 requests per minute
+	limit := 100
+	window := time.Minute
+
+	// Check if rate limit is exceeded
+	allowed, err := s.db.CheckRateLimit(rateLimitKey, limit, window)
+	if err != nil {
+		return fmt.Errorf("failed to check rate limit: %w", err)
+	}
+
+	if !allowed {
+		return &FrameworkError{
+			Code:       ErrCodeRateLimitExceeded,
+			Message:    fmt.Sprintf("rate limit exceeded for resource: %s", resource),
+			StatusCode: http.StatusTooManyRequests,
+			I18nKey:    "error.rate_limit.exceeded",
+			Details:    map[string]interface{}{"resource": resource, "limit": limit, "window": window.String()},
+		}
+	}
+
+	// Increment rate limit counter
+	if err := s.db.IncrementRateLimit(rateLimitKey, window); err != nil {
+		return fmt.Errorf("failed to increment rate limit: %w", err)
+	}
+
 	return nil
 }
 
 // CheckGlobalRateLimit checks global rate limit
 func (s *securityManagerImpl) CheckGlobalRateLimit(ctx Context) error {
-	// TODO: Implement with database-backed rate limiting
+	// Get client identifier (IP address or user ID)
+	clientID := s.getClientIdentifier(ctx)
+
+	// Create global rate limit key
+	rateLimitKey := fmt.Sprintf("ratelimit:global:%s", clientID)
+
+	// Default global rate limit: 1000 requests per hour
+	limit := 1000
+	window := time.Hour
+
+	// Check if rate limit is exceeded
+	allowed, err := s.db.CheckRateLimit(rateLimitKey, limit, window)
+	if err != nil {
+		return fmt.Errorf("failed to check global rate limit: %w", err)
+	}
+
+	if !allowed {
+		return &FrameworkError{
+			Code:       ErrCodeRateLimitExceeded,
+			Message:    "global rate limit exceeded",
+			StatusCode: http.StatusTooManyRequests,
+			I18nKey:    "error.rate_limit.global_exceeded",
+			Details:    map[string]interface{}{"limit": limit, "window": window.String()},
+		}
+	}
+
+	// Increment rate limit counter
+	if err := s.db.IncrementRateLimit(rateLimitKey, window); err != nil {
+		return fmt.Errorf("failed to increment global rate limit: %w", err)
+	}
+
 	return nil
+}
+
+// getClientIdentifier extracts a unique identifier for the client
+func (s *securityManagerImpl) getClientIdentifier(ctx Context) string {
+	// Try to get authenticated user ID first
+	user := ctx.User()
+	if user != nil && user.ID != "" {
+		return fmt.Sprintf("user:%s", user.ID)
+	}
+
+	// Fall back to IP address
+	req := ctx.Request()
+	if req != nil {
+		// Check for X-Forwarded-For header (proxy/load balancer)
+		if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
+			// Take the first IP in the chain
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				return fmt.Sprintf("ip:%s", strings.TrimSpace(ips[0]))
+			}
+		}
+
+		// Check for X-Real-IP header
+		if xri := req.Header.Get("X-Real-IP"); xri != "" {
+			return fmt.Sprintf("ip:%s", xri)
+		}
+
+		// Use RemoteAddr as fallback
+		if req.RemoteAddr != "" {
+			// Remove port if present
+			addr := req.RemoteAddr
+			if idx := strings.LastIndex(addr, ":"); idx != -1 {
+				addr = addr[:idx]
+			}
+			return fmt.Sprintf("ip:%s", addr)
+		}
+	}
+
+	// Ultimate fallback
+	return "unknown"
 }
 
 // Authentication methods (delegated to auth.go)

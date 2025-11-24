@@ -548,8 +548,9 @@ func (pm *proxyManager) recordMetrics(backendID string, success bool, responseTi
 	}
 
 	pm.metrics.TotalResponseTime += responseTime
-	if pm.metrics.TotalRequests > 0 {
-		pm.metrics.AverageResponseTime = pm.metrics.TotalResponseTime / time.Duration(pm.metrics.TotalRequests)
+	totalReqs := atomic.LoadInt64(&pm.metrics.TotalRequests)
+	if totalReqs > 0 {
+		pm.metrics.AverageResponseTime = pm.metrics.TotalResponseTime / time.Duration(totalReqs)
 	}
 
 	// Update backend metrics

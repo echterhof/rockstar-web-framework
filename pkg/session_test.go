@@ -13,11 +13,12 @@ import (
 // Mock implementations for testing
 
 type mockContext struct {
-	user    *User
-	tenant  *Tenant
-	request *Request
-	cookies map[string]*Cookie
-	headers map[string]string
+	user            *User
+	tenant          *Tenant
+	request         *Request
+	cookies         map[string]*Cookie
+	headers         map[string]string
+	isAuthenticated bool
 }
 
 func (m *mockContext) Request() *Request                                            { return m.request }
@@ -78,9 +79,14 @@ func (m *mockContext) GetHeader(key string) string {
 	return m.headers[key]
 }
 
-func (m *mockContext) FormValue(key string) string               { return "" }
-func (m *mockContext) FormFile(key string) (*FormFile, error)    { return nil, nil }
-func (m *mockContext) IsAuthenticated() bool                     { return m.user != nil }
+func (m *mockContext) FormValue(key string) string            { return "" }
+func (m *mockContext) FormFile(key string) (*FormFile, error) { return nil, nil }
+func (m *mockContext) IsAuthenticated() bool {
+	if m.isAuthenticated {
+		return true
+	}
+	return m.user != nil
+}
 func (m *mockContext) IsAuthorized(resource, action string) bool { return false }
 
 type mockSessionCacheManager struct {

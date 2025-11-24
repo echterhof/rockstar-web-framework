@@ -57,17 +57,6 @@ func (m *mockDatabaseForMetrics) Begin() (Transaction, error)             { retu
 func (m *mockDatabaseForMetrics) BeginTx(opts *sql.TxOptions) (Transaction, error) {
 	return nil, nil
 }
-func (m *mockDatabaseForMetrics) Save(model interface{}) error { return nil }
-func (m *mockDatabaseForMetrics) Find(model interface{}, conditions ...Condition) error {
-	return nil
-}
-func (m *mockDatabaseForMetrics) FindAll(models interface{}, conditions ...Condition) error {
-	return nil
-}
-func (m *mockDatabaseForMetrics) Delete(model interface{}) error { return nil }
-func (m *mockDatabaseForMetrics) Update(model interface{}, updates map[string]interface{}) error {
-	return nil
-}
 func (m *mockDatabaseForMetrics) SaveSession(session *Session) error { return nil }
 func (m *mockDatabaseForMetrics) LoadSession(sessionID string) (*Session, error) {
 	return nil, nil

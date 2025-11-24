@@ -11,6 +11,11 @@ import (
 // Test stub for databaseManager to test DSN building without CGO dependencies
 type databaseManager struct{}
 
+// NewDatabaseManager creates a new mock database manager for testing
+func NewDatabaseManager() DatabaseManager {
+	return newMockDatabaseManager()
+}
+
 // buildDSN constructs the data source name for different database drivers
 func (dm *databaseManager) buildDSN(config DatabaseConfig) (string, error) {
 	switch config.Driver {

@@ -81,9 +81,15 @@ func New(config FrameworkConfig) (*Framework, error) {
 		startupHooks:     make([]func(ctx context.Context) error, 0),
 	}
 
-	// Initialize configuration manager (stub for now)
-	// TODO: Implement full configuration manager
-	f.config = nil
+	// Initialize configuration manager
+	f.config = NewConfigManager()
+
+	// Load configuration files if specified
+	for _, configFile := range config.ConfigFiles {
+		if err := f.config.Load(configFile); err != nil {
+			return nil, fmt.Errorf("failed to load config file %s: %w", configFile, err)
+		}
+	}
 
 	// Initialize i18n manager
 	i18nMgr, err := NewI18nManager(config.I18nConfig)
@@ -92,9 +98,12 @@ func New(config FrameworkConfig) (*Framework, error) {
 	}
 	f.i18n = i18nMgr
 
-	// Initialize database manager (stub for now)
-	// TODO: Implement full database manager
-	f.database = nil
+	// Initialize database manager
+	dbMgr := NewDatabaseManager()
+	if err := dbMgr.Connect(config.DatabaseConfig); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	f.database = dbMgr
 
 	// Initialize cache manager with configuration
 	f.cache = NewCacheManager(config.CacheConfig)
@@ -266,10 +275,6 @@ func (f *Framework) ListenWithConfig(addr string, config ServerConfig) error {
 
 // Shutdown gracefully shuts down the framework
 func (f *Framework) Shutdown(timeout time.Duration) error {
-	if !f.isRunning {
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -280,9 +285,11 @@ func (f *Framework) Shutdown(timeout time.Duration) error {
 		}
 	}
 
-	// Shutdown all servers
-	if err := f.serverManager.GracefulShutdown(timeout); err != nil {
-		return fmt.Errorf("server shutdown failed: %w", err)
+	// Shutdown all servers if running
+	if f.isRunning {
+		if err := f.serverManager.GracefulShutdown(timeout); err != nil {
+			return fmt.Errorf("server shutdown failed: %w", err)
+		}
 	}
 
 	// Close database connections

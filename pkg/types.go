@@ -64,6 +64,7 @@ type ConfigManager interface {
 	GetBool(key string) bool
 	GetDuration(key string) time.Duration
 	GetStringSlice(key string) []string
+	GetWithDefault(key string, defaultValue interface{}) interface{}
 	GetStringWithDefault(key, defaultValue string) string
 	GetIntWithDefault(key string, defaultValue int) int
 	GetBoolWithDefault(key string, defaultValue bool) bool
@@ -80,6 +81,7 @@ type ConfigManager interface {
 
 type I18nManager interface {
 	Translate(key string, params ...interface{}) string
+	TranslatePlural(key string, count int, params ...interface{}) string
 	SetLanguage(lang string) error
 	GetLanguage() string
 	LoadLocale(locale string, data map[string]interface{}) error

@@ -3,9 +3,19 @@ package pkg
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
+
+// parseJSON parses JSON format configuration
+func parseJSON(data []byte) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	return result, nil
+}
 
 // parseINI parses INI format configuration
 func parseINI(data []byte) (map[string]interface{}, error) {

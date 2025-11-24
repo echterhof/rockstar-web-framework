@@ -14,6 +14,58 @@ import (
 // i18nManagerImpl provides internationalization support for the framework
 // This is the internal implementation of the I18nManager interface defined in managers.go
 
+// PluralRule is a function that determines the plural form index based on count
+// Returns 0 for singular (one), 1 for plural (other), and potentially more for complex languages
+type PluralRule func(count int) int
+
+// PluralRules manages plural rules for different locales
+type PluralRules struct {
+	rules map[string]PluralRule
+}
+
+// NewPluralRules creates a new plural rules engine with default rules
+func NewPluralRules() *PluralRules {
+	pr := &PluralRules{
+		rules: make(map[string]PluralRule),
+	}
+
+	// Register default rules for English and German
+	pr.RegisterRule("en", EnglishPluralRule)
+	pr.RegisterRule("de", GermanPluralRule)
+
+	return pr
+}
+
+// RegisterRule registers a plural rule for a specific locale
+func (pr *PluralRules) RegisterRule(locale string, rule PluralRule) {
+	pr.rules[locale] = rule
+}
+
+// GetRule returns the plural rule for a locale, or nil if not found
+func (pr *PluralRules) GetRule(locale string) PluralRule {
+	return pr.rules[locale]
+}
+
+// EnglishPluralRule implements English plural rules (2 forms: one, other)
+// Form 0 (one): count == 1
+// Form 1 (other): everything else
+func EnglishPluralRule(count int) int {
+	if count == 1 {
+		return 0 // "one" form
+	}
+	return 1 // "other" form
+}
+
+// GermanPluralRule implements German plural rules (2 forms: one, other)
+// Form 0 (one): count == 1
+// Form 1 (other): everything else
+func GermanPluralRule(count int) int {
+	if count == 1 {
+		return 0 // "one" form
+	}
+	return 1 // "other" form
+}
+
 // I18nConfig holds configuration for the i18n manager
 type I18nConfig struct {
 	// DefaultLocale is the fallback locale when translation is not found
@@ -34,6 +86,7 @@ type i18nManagerImpl struct {
 	config        I18nConfig
 	currentLocale string
 	translations  map[string]map[string]string // locale -> key -> translation
+	pluralRules   *PluralRules                 // plural rules engine
 	mu            sync.RWMutex
 	logger        *I18nLogger
 }
@@ -52,6 +105,7 @@ func NewI18nManager(config I18nConfig) (I18nManager, error) {
 		config:        config,
 		currentLocale: config.DefaultLocale,
 		translations:  make(map[string]map[string]string),
+		pluralRules:   NewPluralRules(),
 	}
 
 	// Initialize logger
@@ -324,9 +378,86 @@ func (m *i18nManagerImpl) addTranslation(locale, key, value string) error {
 
 // TranslatePlural translates a key with plural support
 func (m *i18nManagerImpl) TranslatePlural(key string, count int, params ...interface{}) string {
-	// For now, just use regular translation
-	// TODO: Implement proper plural support
-	return m.Translate(key, params...)
+	return m.TranslatePluralWithLang(m.currentLocale, key, count, params...)
+}
+
+// TranslatePluralWithLang translates a key with plural support for a specific locale
+func (m *i18nManagerImpl) TranslatePluralWithLang(locale, key string, count int, params ...interface{}) string {
+	// Convert params to map format and add count
+	paramMap := make(map[string]interface{})
+	if len(params) > 0 {
+		if pm, ok := params[0].(map[string]interface{}); ok {
+			paramMap = pm
+		}
+	}
+	// Always add count to parameters for interpolation
+	paramMap["count"] = count
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Get plural rule for the locale
+	rule := m.pluralRules.GetRule(locale)
+	if rule == nil {
+		// If no rule found, try default locale
+		if locale != m.config.DefaultLocale {
+			rule = m.pluralRules.GetRule(m.config.DefaultLocale)
+		}
+		// If still no rule, use English as ultimate fallback
+		if rule == nil {
+			rule = EnglishPluralRule
+		}
+	}
+
+	// Calculate plural form index
+	formIndex := rule(count)
+
+	// Build translation key with plural form suffix
+	var pluralKey string
+	switch formIndex {
+	case 0:
+		pluralKey = key + ".one"
+	case 1:
+		pluralKey = key + ".other"
+	default:
+		// For languages with more than 2 forms (future support)
+		pluralKey = fmt.Sprintf("%s.form%d", key, formIndex)
+	}
+
+	// Try to get translation for requested locale with plural form
+	if translations, ok := m.translations[locale]; ok {
+		if translation, ok := translations[pluralKey]; ok {
+			return m.interpolate(translation, paramMap)
+		}
+	}
+
+	// Fallback to default locale if enabled
+	if m.config.FallbackToDefault && locale != m.config.DefaultLocale {
+		if translations, ok := m.translations[m.config.DefaultLocale]; ok {
+			if translation, ok := translations[pluralKey]; ok {
+				return m.interpolate(translation, paramMap)
+			}
+		}
+	}
+
+	// If no plural form found, try the base key without suffix
+	if translations, ok := m.translations[locale]; ok {
+		if translation, ok := translations[key]; ok {
+			return m.interpolate(translation, paramMap)
+		}
+	}
+
+	// Final fallback to default locale base key
+	if m.config.FallbackToDefault && locale != m.config.DefaultLocale {
+		if translations, ok := m.translations[m.config.DefaultLocale]; ok {
+			if translation, ok := translations[key]; ok {
+				return m.interpolate(translation, paramMap)
+			}
+		}
+	}
+
+	// Return key if no translation found
+	return key
 }
 
 // TranslateError translates a framework error
