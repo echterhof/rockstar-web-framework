@@ -55,6 +55,9 @@ type httpServer struct {
 	configMgr ConfigManager
 	i18n      I18nManager
 	security  SecurityManager
+
+	// Plugin system
+	hookSystem HookSystem
 }
 
 // NewServer creates a new HTTP server instance
@@ -520,6 +523,14 @@ func (s *httpServer) SetManagers(logger Logger, metrics MetricsCollector, sessio
 	return s
 }
 
+// SetHookSystem sets the hook system for plugin integration
+func (s *httpServer) SetHookSystem(hookSystem HookSystem) Server {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hookSystem = hookSystem
+	return s
+}
+
 // Addr returns the server address
 func (s *httpServer) Addr() string {
 	s.mu.RLock()
@@ -722,6 +733,16 @@ func (s *httpServer) executeHandler(ctx Context) error {
 	default:
 	}
 
+	// Execute pre-request hooks if hook system is available
+	if s.hookSystem != nil {
+		if err := s.hookSystem.ExecuteHooks(HookTypePreRequest, ctx); err != nil {
+			// Log error but continue processing
+			if s.logger != nil {
+				s.logger.Error(fmt.Sprintf("pre-request hook error: %v", err))
+			}
+		}
+	}
+
 	// If no router is set, return error
 	if s.router == nil {
 		return errors.New("no router configured")
@@ -774,7 +795,29 @@ func (s *httpServer) executeHandler(ctx Context) error {
 	}
 
 	// Execute handler chain
-	return handler(ctx)
+	err := handler(ctx)
+
+	// Execute post-request hooks if hook system is available
+	if s.hookSystem != nil {
+		if hookErr := s.hookSystem.ExecuteHooks(HookTypePostRequest, ctx); hookErr != nil {
+			// Log error but don't override handler error
+			if s.logger != nil {
+				s.logger.Error(fmt.Sprintf("post-request hook error: %v", hookErr))
+			}
+		}
+	}
+
+	// Execute pre-response hooks if hook system is available
+	if s.hookSystem != nil {
+		if hookErr := s.hookSystem.ExecuteHooks(HookTypePreResponse, ctx); hookErr != nil {
+			// Log error but don't override handler error
+			if s.logger != nil {
+				s.logger.Error(fmt.Sprintf("pre-response hook error: %v", hookErr))
+			}
+		}
+	}
+
+	return err
 }
 
 // connContext tracks connection context for graceful shutdown

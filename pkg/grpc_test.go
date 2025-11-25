@@ -120,9 +120,10 @@ func (m *mockGRPCDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error        
 func (m *mockGRPCDB) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
 	return nil, nil
 }
-func (m *mockGRPCDB) Migrate() error      { return nil }
-func (m *mockGRPCDB) CreateTables() error { return nil }
-func (m *mockGRPCDB) DropTables() error   { return nil }
+func (m *mockGRPCDB) Migrate() error                { return nil }
+func (m *mockGRPCDB) CreateTables() error           { return nil }
+func (m *mockGRPCDB) DropTables() error             { return nil }
+func (m *mockGRPCDB) InitializePluginTables() error { return nil }
 
 // TestNewGRPCManager tests creating a new gRPC manager
 // Requirements: 2.3

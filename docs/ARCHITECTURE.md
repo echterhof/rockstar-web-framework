@@ -570,13 +570,151 @@ router.Group("/api", apiMiddleware)
 router.GET("/users", handler, authMiddleware)
 ```
 
-### Plugin Architecture
+### Plugin System
 
-Future support for plugins:
+The framework includes a comprehensive plugin system for extending functionality:
 
-```go
-app.RegisterPlugin(plugin)
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                    Framework Core                           │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              Plugin Manager                          │  │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐    │  │
+│  │  │  Registry  │  │   Loader   │  │  Lifecycle │    │  │
+│  │  └────────────┘  └────────────┘  └────────────┘    │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              Hook System                             │  │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐    │  │
+│  │  │  Startup   │  │  Request   │  │  Shutdown  │    │  │
+│  │  └────────────┘  └────────────┘  └────────────┘    │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              Event Bus                               │  │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐    │  │
+│  │  │  Publish   │  │ Subscribe  │  │  Dispatch  │    │  │
+│  │  └────────────┘  └────────────┘  └────────────┘    │  │
+│  └──────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Plugins                                │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
+│  │   Plugin A   │  │   Plugin B   │  │   Plugin C   │     │
+│  │              │  │              │  │              │     │
+│  │  - Hooks     │  │  - Routes    │  │  - Events    │     │
+│  │  - Middleware│  │  - Services  │  │  - Config    │     │
+│  └──────────────┘  └──────────────┘  └──────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Plugin Architecture Features
+
+**Plugin Lifecycle:**
+```
+Load → Validate → Initialize → Start → Running → Stop → Cleanup → Unload
+```
+
+**Plugin Capabilities:**
+- Register hooks at framework lifecycle points (startup, shutdown, pre-request, post-request)
+- Register custom middleware (global or route-specific)
+- Register custom routes and handlers
+- Access framework services (database, cache, config, logger, metrics)
+- Publish and subscribe to events for inter-plugin communication
+- Export and import services between plugins
+- Store plugin-specific configuration and data
+
+**Plugin Isolation:**
+- Each plugin runs with its own context and permissions
+- Storage isolation prevents data conflicts
+- Configuration isolation ensures security
+- Error isolation prevents plugin failures from affecting the framework
+
+**Hot Reload:**
+```
+Running Plugin → Stop → Unload → Load New Version → Initialize → Start
+                                        ↓ (on failure)
+                                    Rollback to Previous Version
+```
+
+**Example Plugin:**
+```go
+type MyPlugin struct {
+    ctx pkg.PluginContext
+}
+
+func (p *MyPlugin) Name() string { return "my-plugin" }
+func (p *MyPlugin) Version() string { return "1.0.0" }
+
+func (p *MyPlugin) Initialize(ctx pkg.PluginContext) error {
+    p.ctx = ctx
+    
+    // Register a startup hook
+    ctx.RegisterHook(pkg.HookTypeStartup, 100, func(hctx pkg.HookContext) error {
+        p.ctx.Logger().Info("Plugin started")
+        return nil
+    })
+    
+    // Register middleware
+    ctx.RegisterMiddleware(pkg.MiddlewareConfig{
+        Name:     "my-middleware",
+        Priority: 50,
+        Handler:  p.myMiddleware,
+    })
+    
+    // Subscribe to events
+    ctx.SubscribeEvent("user.created", p.onUserCreated)
+    
+    return nil
+}
+
+func (p *MyPlugin) Start() error {
+    // Start plugin services
+    return nil
+}
+
+func (p *MyPlugin) Stop() error {
+    // Stop plugin services
+    return nil
+}
+
+func (p *MyPlugin) Cleanup() error {
+    // Cleanup resources
+    return nil
+}
+```
+
+**Plugin Configuration:**
+```yaml
+plugins:
+  enabled: true
+  directory: ./plugins
+  
+  plugins:
+    - name: auth-plugin
+      enabled: true
+      path: ./plugins/auth-plugin
+      priority: 100
+      config:
+        jwt_secret: "secret"
+      permissions:
+        database: true
+        cache: true
+        router: true
+```
+
+**Security:**
+- Permission-based access control for framework services
+- Granular permissions (database, cache, router, filesystem, network, exec)
+- Security violation logging
+- Plugin manifest validation
+
+For detailed plugin development information, see:
+- [Plugin System Documentation](PLUGIN_SYSTEM.md)
+- [Plugin Development Guide](PLUGIN_DEVELOPMENT.md)
 
 ## Conclusion
 

@@ -1,0 +1,85 @@
+# Example configuration file demonstrating how to load and configure plugins
+# This file can be used with the Rockstar Web Framework
+
+plugins:
+  enabled: true
+  directory: ./examples/plugins
+  
+  plugins:
+    # Minimal plugin - demonstrates basic plugin functionality
+    - name: minimal-plugin
+      enabled: true
+      path: ./examples/plugins/minimal-plugin
+      priority: 100
+      config:
+        message: "Hello from minimal plugin!"
+      permissions:
+        database: false
+        cache: false
+        router: false
+        config: false
+        filesystem: false
+        network: false
+        exec: false
+    
+    # Logging plugin - logs all requests and responses
+    - name: logging-plugin
+      enabled: true
+      path: ./examples/plugins/logging-plugin
+      priority: 50
+      config:
+        log_requests: true
+        log_responses: true
+        log_headers: true
+        log_body: false
+      permissions:
+        database: false
+        cache: false
+        router: false
+        config: false
+        filesystem: false
+        network: false
+        exec: false
+    
+    # Auth plugin - handles authentication
+    - name: auth-plugin
+      enabled: true
+      path: ./examples/plugins/auth-plugin
+      priority: 200
+      config:
+        token_duration: "2h"
+        require_auth: true
+        excluded_paths:
+          - "/health"
+          - "/public"
+          - "/api/docs"
+      permissions:
+        database: false
+        cache: false
+        router: true
+        config: false
+        filesystem: false
+        network: false
+        exec: false
+    
+    # Cache plugin - caches GET responses
+    - name: cache-plugin
+      enabled: true
+      path: ./examples/plugins/cache-plugin
+      priority: 150
+      config:
+        cache_duration: "10m"
+        enabled: true
+        cache_methods:
+          - "GET"
+        excluded_paths:
+          - "/admin"
+          - "/api/auth"
+      permissions:
+        database: false
+        cache: true
+        router: true
+        config: false
+        filesystem: false
+        network: false
+        exec: false

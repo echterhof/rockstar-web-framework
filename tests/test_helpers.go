@@ -247,9 +247,10 @@ func (m *testMockDB) BeginTx(opts *sql.TxOptions) (pkg.Transaction, error) {
 
 // Note: Save, Find, FindAll, Delete, Update are not part of DatabaseManager interface
 // They were removed as they're not used by the framework
-func (m *testMockDB) Migrate() error      { return nil }
-func (m *testMockDB) CreateTables() error { return nil }
-func (m *testMockDB) DropTables() error   { return nil }
+func (m *testMockDB) Migrate() error                { return nil }
+func (m *testMockDB) CreateTables() error           { return nil }
+func (m *testMockDB) DropTables() error             { return nil }
+func (m *testMockDB) InitializePluginTables() error { return nil }
 
 // Helper functions for creating test data
 

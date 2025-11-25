@@ -1,0 +1,83 @@
+# Example Plugin Manifest
+# This file demonstrates the structure of a plugin manifest for the Rockstar Web Framework
+
+name: example-plugin
+version: 1.0.0
+description: An example plugin demonstrating all manifest features
+author: John Doe <john@example.com>
+
+# Framework compatibility
+framework:
+  version: ">=1.0.0,<2.0.0"
+
+# Plugin dependencies
+dependencies:
+  - name: auth-plugin
+    version: ">=1.0.0"
+    optional: false
+  - name: cache-plugin
+    version: ">=2.0.0"
+    optional: true
+
+# Required permissions
+permissions:
+  database: true
+  cache: true
+  router: true
+  config: true
+  filesystem: false
+  network: false
+  exec: false
+
+# Configuration schema
+config:
+  api_key:
+    type: string
+    required: true
+    description: API key for external service
+  timeout:
+    type: duration
+    default: 30s
+    description: Request timeout
+  enabled_features:
+    type: array
+    items: string
+    default: []
+    description: List of enabled features
+  max_retries:
+    type: int
+    default: 3
+    description: Maximum number of retries
+  debug_mode:
+    type: bool
+    default: false
+    description: Enable debug logging
+
+# Hook registrations
+hooks:
+  - type: startup
+    priority: 100
+  - type: pre_request
+    priority: 50
+  - type: post_request
+    priority: 50
+  - type: shutdown
+    priority: 100
+
+# Event subscriptions and publications
+events:
+  publishes:
+    - user.created
+    - user.updated
+    - user.deleted
+  subscribes:
+    - auth.login
+    - auth.logout
+    - cache.invalidated
+
+# Exported services
+exports:
+  - name: UserService
+    description: User management service
+  - name: NotificationService
+    description: Notification delivery service

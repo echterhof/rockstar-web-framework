@@ -14,6 +14,7 @@ Complete API reference for the Rockstar Web Framework.
 8. [Security](#security)
 9. [Configuration](#configuration)
 10. [Internationalization](#internationalization)
+11. [Plugin System](#plugin-system)
 
 ## Framework
 
@@ -129,6 +130,20 @@ func (f *Framework) RegisterShutdownHook(hook func(ctx context.Context) error)
 ```
 
 Registers a function to be called during graceful shutdown.
+
+#### PluginManager()
+
+```go
+func (f *Framework) PluginManager() PluginManager
+```
+
+Returns the plugin manager for loading and managing plugins.
+
+**Example:**
+```go
+pluginManager := app.PluginManager()
+err := pluginManager.LoadPlugin("./plugins/my-plugin", config)
+```
 
 ## Context
 
@@ -641,6 +656,279 @@ i18n := ctx.I18n()
 message := i18n.Translate("welcome_message", userName)
 ```
 
+## Plugin System
+
+The plugin system enables extending framework functionality through dynamically loadable modules.
+
+### PluginManager Interface
+
+The main interface for managing plugins.
+
+#### LoadPlugin()
+
+```go
+func (pm PluginManager) LoadPlugin(path string, config PluginConfig) error
+```
+
+Loads a plugin from the specified path.
+
+**Parameters:**
+- `path`: Path to the plugin binary or directory
+- `config`: Plugin configuration
+
+**Example:**
+```go
+err := pluginManager.LoadPlugin("./plugins/auth-plugin", pkg.PluginConfig{
+    Enabled: true,
+    Config: map[string]interface{}{
+        "jwt_secret": "secret",
+    },
+    Permissions: pkg.PluginPermissions{
+        AllowDatabase: true,
+        AllowCache:    true,
+    },
+})
+```
+
+#### LoadPluginsFromConfig()
+
+```go
+func (pm PluginManager) LoadPluginsFromConfig(configPath string) error
+```
+
+Loads multiple plugins from a configuration file (YAML, JSON, or TOML).
+
+#### UnloadPlugin()
+
+```go
+func (pm PluginManager) UnloadPlugin(name string) error
+```
+
+Unloads a plugin by name.
+
+#### ReloadPlugin()
+
+```go
+func (pm PluginManager) ReloadPlugin(name string) error
+```
+
+Hot reloads a plugin without restarting the server.
+
+**Example:**
+```go
+err := pluginManager.ReloadPlugin("auth-plugin")
+```
+
+#### GetPlugin()
+
+```go
+func (pm PluginManager) GetPlugin(name string) (Plugin, error)
+```
+
+Retrieves a loaded plugin by name.
+
+#### ListPlugins()
+
+```go
+func (pm PluginManager) ListPlugins() []PluginInfo
+```
+
+Returns information about all loaded plugins.
+
+**Example:**
+```go
+plugins := pluginManager.ListPlugins()
+for _, info := range plugins {
+    fmt.Printf("%s v%s - %s\n", info.Name, info.Version, info.Status)
+}
+```
+
+#### IsLoaded()
+
+```go
+func (pm PluginManager) IsLoaded(name string) bool
+```
+
+Checks if a plugin is currently loaded.
+
+#### GetPluginHealth()
+
+```go
+func (pm PluginManager) GetPluginHealth(name string) PluginHealth
+```
+
+Returns health information for a specific plugin.
+
+**Example:**
+```go
+health := pluginManager.GetPluginHealth("auth-plugin")
+fmt.Printf("Status: %s, Errors: %d\n", health.Status, health.ErrorCount)
+```
+
+#### GetAllHealth()
+
+```go
+func (pm PluginManager) GetAllHealth() map[string]PluginHealth
+```
+
+Returns health information for all plugins.
+
+### Plugin Interface
+
+Interface that all plugins must implement.
+
+```go
+type Plugin interface {
+    // Metadata
+    Name() string
+    Version() string
+    Description() string
+    Author() string
+    
+    // Dependencies
+    Dependencies() []PluginDependency
+    
+    // Lifecycle
+    Initialize(ctx PluginContext) error
+    Start() error
+    Stop() error
+    Cleanup() error
+    
+    // Configuration
+    ConfigSchema() map[string]interface{}
+    OnConfigChange(config map[string]interface{}) error
+}
+```
+
+### PluginContext Interface
+
+Provides plugins with access to framework services.
+
+```go
+type PluginContext interface {
+    // Core framework access
+    Router() RouterEngine
+    Logger() Logger
+    Metrics() MetricsCollector
+    
+    // Data access (permission-controlled)
+    Database() DatabaseManager
+    Cache() CacheManager
+    Config() ConfigManager
+    
+    // Plugin-specific
+    PluginConfig() map[string]interface{}
+    PluginStorage() PluginStorage
+    
+    // Hook registration
+    RegisterHook(hookType HookType, priority int, handler HookHandler) error
+    
+    // Event system
+    PublishEvent(event string, data interface{}) error
+    SubscribeEvent(event string, handler EventHandler) error
+    
+    // Service export/import
+    ExportService(name string, service interface{}) error
+    ImportService(pluginName, serviceName string) (interface{}, error)
+    
+    // Middleware registration
+    RegisterMiddleware(config MiddlewareConfig) error
+    UnregisterMiddleware(name string) error
+}
+```
+
+### Hook Types
+
+```go
+const (
+    HookTypeStartup      HookType = "startup"
+    HookTypeShutdown     HookType = "shutdown"
+    HookTypePreRequest   HookType = "pre_request"
+    HookTypePostRequest  HookType = "post_request"
+    HookTypePreResponse  HookType = "pre_response"
+    HookTypePostResponse HookType = "post_response"
+    HookTypeError        HookType = "error"
+)
+```
+
+**Example:**
+```go
+func (p *MyPlugin) Initialize(ctx PluginContext) error {
+    // Register a pre-request hook
+    ctx.RegisterHook(pkg.HookTypePreRequest, 100, func(hctx pkg.HookContext) error {
+        // Process request before routing
+        return nil
+    })
+    
+    return nil
+}
+```
+
+### Plugin Configuration
+
+Plugins can be configured via YAML, JSON, or TOML:
+
+```yaml
+plugins:
+  enabled: true
+  directory: ./plugins
+  
+  plugins:
+    - name: auth-plugin
+      enabled: true
+      path: ./plugins/auth-plugin
+      priority: 100
+      config:
+        jwt_secret: "secret"
+        token_expiry: 3600
+      permissions:
+        database: true
+        cache: true
+        router: true
+        filesystem: false
+        network: false
+```
+
+### Plugin Manifest
+
+Each plugin should include a manifest file (plugin.yaml or plugin.json):
+
+```yaml
+name: auth-plugin
+version: 1.0.0
+description: Authentication plugin with JWT support
+author: Your Name <email@example.com>
+
+framework:
+  version: ">=1.0.0,<2.0.0"
+
+dependencies:
+  - name: cache-plugin
+    version: ">=1.0.0"
+    optional: false
+
+permissions:
+  database: true
+  cache: true
+  router: true
+  filesystem: false
+  network: false
+
+config:
+  jwt_secret:
+    type: string
+    required: true
+    description: JWT signing secret
+  token_expiry:
+    type: int
+    default: 3600
+    description: Token expiration in seconds
+```
+
+For detailed plugin development information, see:
+- [Plugin System Documentation](PLUGIN_SYSTEM.md)
+- [Plugin Development Guide](PLUGIN_DEVELOPMENT.md)
+
 ## Types
 
 ### FrameworkConfig
@@ -656,6 +944,98 @@ type FrameworkConfig struct {
     SecurityConfig   SecurityConfig
     MonitoringConfig MonitoringConfig
     ProxyConfig      ProxyConfig
+    PluginConfig     PluginConfig
+}
+```
+
+### PluginConfig
+
+```go
+type PluginConfig struct {
+    Enabled   bool
+    Directory string
+    Plugins   []PluginLoadConfig
+}
+```
+
+### PluginLoadConfig
+
+```go
+type PluginLoadConfig struct {
+    Name        string
+    Enabled     bool
+    Path        string
+    Priority    int
+    Config      map[string]interface{}
+    Permissions PluginPermissions
+}
+```
+
+### PluginPermissions
+
+```go
+type PluginPermissions struct {
+    AllowDatabase    bool
+    AllowCache       bool
+    AllowConfig      bool
+    AllowRouter      bool
+    AllowFileSystem  bool
+    AllowNetwork     bool
+    AllowExec        bool
+    CustomPermissions map[string]bool
+}
+```
+
+### PluginInfo
+
+```go
+type PluginInfo struct {
+    Name        string
+    Version     string
+    Description string
+    Author      string
+    Loaded      bool
+    Enabled     bool
+    LoadTime    time.Time
+    Status      PluginStatus
+}
+```
+
+### PluginStatus
+
+```go
+type PluginStatus string
+
+const (
+    PluginStatusUnloaded    PluginStatus = "unloaded"
+    PluginStatusLoading     PluginStatus = "loading"
+    PluginStatusInitialized PluginStatus = "initialized"
+    PluginStatusRunning     PluginStatus = "running"
+    PluginStatusStopped     PluginStatus = "stopped"
+    PluginStatusError       PluginStatus = "error"
+)
+```
+
+### PluginHealth
+
+```go
+type PluginHealth struct {
+    Status       PluginStatus
+    ErrorCount   int64
+    LastError    error
+    LastErrorAt  time.Time
+    HookMetrics  map[string]HookMetrics
+}
+```
+
+### PluginDependency
+
+```go
+type PluginDependency struct {
+    Name             string
+    Version          string // Semantic version constraint
+    Optional         bool
+    FrameworkVersion string
 }
 ```
 

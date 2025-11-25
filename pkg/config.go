@@ -207,8 +207,17 @@ func (c *configManager) GetBool(key string) bool {
 	case bool:
 		return v
 	case string:
-		b, _ := strconv.ParseBool(v)
-		return b
+		// Handle YAML-style boolean values
+		lower := strings.ToLower(strings.TrimSpace(v))
+		switch lower {
+		case "yes", "y", "on", "1", "true", "t":
+			return true
+		case "no", "n", "off", "0", "false", "f":
+			return false
+		default:
+			b, _ := strconv.ParseBool(v)
+			return b
+		}
 	case int, int64:
 		return v != 0
 	default:

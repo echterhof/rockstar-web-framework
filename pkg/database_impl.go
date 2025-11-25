@@ -591,6 +591,7 @@ func (dm *databaseManager) CreateTables() error {
 // DropTables drops all framework tables
 func (dm *databaseManager) DropTables() error {
 	tables := []string{
+		"plugin_metrics", "plugin_storage", "plugin_events", "plugin_hooks", "plugins",
 		"workload_metrics", "rate_limits", "access_tokens", "sessions", "tenants",
 	}
 
@@ -602,6 +603,140 @@ func (dm *databaseManager) DropTables() error {
 	}
 
 	return nil
+}
+
+// InitializePluginTables creates plugin system tables
+func (dm *databaseManager) InitializePluginTables() error {
+	dm.mutex.RLock()
+	driver := dm.config.Driver
+	dm.mutex.RUnlock()
+
+	pluginTables := []string{"plugins", "plugin_hooks", "plugin_events", "plugin_storage", "plugin_metrics"}
+	schemas := dm.getPluginTableSchemas(driver)
+
+	// Create tables
+	for _, tableName := range pluginTables {
+		schema, exists := schemas[tableName]
+		if !exists {
+			return fmt.Errorf("schema not found for table: %s", tableName)
+		}
+
+		if _, err := dm.Exec(schema); err != nil {
+			return fmt.Errorf("failed to create plugin table %s: %w", tableName, err)
+		}
+	}
+
+	// Create indexes
+	indexes := dm.getPluginIndexes()
+	for _, indexSQL := range indexes {
+		if _, err := dm.Exec(indexSQL); err != nil {
+			// Log but don't fail if index already exists
+			// Some databases may error on duplicate index creation
+		}
+	}
+
+	return nil
+}
+
+// getPluginIndexes returns index creation statements for plugin tables
+func (dm *databaseManager) getPluginIndexes() []string {
+	return []string{
+		"CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugins_enabled ON plugins(enabled)",
+		"CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins(status)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_plugin ON plugin_hooks(plugin_name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_type ON plugin_hooks(hook_type)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_priority ON plugin_hooks(priority)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_events_name ON plugin_events(event_name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_events_publisher ON plugin_events(publisher_plugin)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_events_subscriber ON plugin_events(subscriber_plugin)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin ON plugin_storage(plugin_name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_storage_key ON plugin_storage(storage_key)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_plugin ON plugin_metrics(plugin_name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_name ON plugin_metrics(metric_name)",
+		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_recorded ON plugin_metrics(recorded_at)",
+	}
+}
+
+// getPluginTableSchemas returns plugin table schemas for the specified driver
+func (dm *databaseManager) getPluginTableSchemas(driver string) map[string]string {
+	// Determine auto-increment syntax based on driver
+	autoIncrement := "AUTO_INCREMENT"
+	if driver == "sqlite3" || driver == "sqlite" {
+		autoIncrement = "AUTOINCREMENT"
+	} else if driver == "postgres" {
+		autoIncrement = "SERIAL"
+	}
+
+	// For SQLite, we need to use INTEGER PRIMARY KEY for auto-increment
+	idColumn := fmt.Sprintf("id INTEGER PRIMARY KEY %s", autoIncrement)
+	if driver == "sqlite3" || driver == "sqlite" {
+		idColumn = "id INTEGER PRIMARY KEY AUTOINCREMENT"
+	} else if driver == "postgres" {
+		idColumn = "id SERIAL PRIMARY KEY"
+	} else {
+		idColumn = "id BIGINT AUTO_INCREMENT PRIMARY KEY"
+	}
+
+	return map[string]string{
+		"plugins": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugins (
+			%s,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			version VARCHAR(50) NOT NULL,
+			description TEXT,
+			author VARCHAR(255),
+			enabled BOOLEAN DEFAULT TRUE,
+			loaded_at TIMESTAMP,
+			config TEXT,
+			permissions TEXT,
+			status VARCHAR(50),
+			error_count INTEGER DEFAULT 0,
+			last_error TEXT,
+			last_error_at TIMESTAMP
+		)`, idColumn),
+
+		"plugin_hooks": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_hooks (
+			%s,
+			plugin_name VARCHAR(255) NOT NULL,
+			hook_type VARCHAR(50) NOT NULL,
+			priority INTEGER DEFAULT 0,
+			execution_count INTEGER DEFAULT 0,
+			total_duration_ms INTEGER DEFAULT 0,
+			error_count INTEGER DEFAULT 0,
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+		)`, idColumn),
+
+		"plugin_events": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_events (
+			%s,
+			event_name VARCHAR(255) NOT NULL,
+			publisher_plugin VARCHAR(255) NOT NULL,
+			subscriber_plugin VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (publisher_plugin) REFERENCES plugins(name) ON DELETE CASCADE,
+			FOREIGN KEY (subscriber_plugin) REFERENCES plugins(name) ON DELETE CASCADE
+		)`, idColumn),
+
+		"plugin_storage": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_storage (
+			%s,
+			plugin_name VARCHAR(255) NOT NULL,
+			storage_key VARCHAR(255) NOT NULL,
+			storage_value TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (plugin_name, storage_key),
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+		)`, idColumn),
+
+		"plugin_metrics": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_metrics (
+			%s,
+			plugin_name VARCHAR(255) NOT NULL,
+			metric_name VARCHAR(255) NOT NULL,
+			metric_value DOUBLE NOT NULL,
+			tags TEXT,
+			recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+		)`, idColumn),
+	}
 }
 
 // getTableSchemas returns SQL schemas for all framework tables
@@ -675,6 +810,78 @@ func (dm *databaseManager) getTableSchemas() map[string]string {
 			rate_key VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			INDEX idx_rate_limits_key_time (rate_key, created_at)
+		)`,
+
+		"plugins": `CREATE TABLE IF NOT EXISTS plugins (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			version VARCHAR(50) NOT NULL,
+			description TEXT,
+			author VARCHAR(255),
+			enabled BOOLEAN DEFAULT TRUE,
+			loaded_at TIMESTAMP,
+			config JSON,
+			permissions JSON,
+			status VARCHAR(50),
+			error_count INTEGER DEFAULT 0,
+			last_error TEXT,
+			last_error_at TIMESTAMP,
+			INDEX idx_plugins_name (name),
+			INDEX idx_plugins_enabled (enabled),
+			INDEX idx_plugins_status (status)
+		)`,
+
+		"plugin_hooks": `CREATE TABLE IF NOT EXISTS plugin_hooks (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			plugin_name VARCHAR(255) NOT NULL,
+			hook_type VARCHAR(50) NOT NULL,
+			priority INTEGER DEFAULT 0,
+			execution_count INTEGER DEFAULT 0,
+			total_duration_ms INTEGER DEFAULT 0,
+			error_count INTEGER DEFAULT 0,
+			INDEX idx_plugin_hooks_plugin (plugin_name),
+			INDEX idx_plugin_hooks_type (hook_type),
+			INDEX idx_plugin_hooks_priority (priority),
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+		)`,
+
+		"plugin_events": `CREATE TABLE IF NOT EXISTS plugin_events (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			event_name VARCHAR(255) NOT NULL,
+			publisher_plugin VARCHAR(255) NOT NULL,
+			subscriber_plugin VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_plugin_events_name (event_name),
+			INDEX idx_plugin_events_publisher (publisher_plugin),
+			INDEX idx_plugin_events_subscriber (subscriber_plugin),
+			FOREIGN KEY (publisher_plugin) REFERENCES plugins(name) ON DELETE CASCADE,
+			FOREIGN KEY (subscriber_plugin) REFERENCES plugins(name) ON DELETE CASCADE
+		)`,
+
+		"plugin_storage": `CREATE TABLE IF NOT EXISTS plugin_storage (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			plugin_name VARCHAR(255) NOT NULL,
+			storage_key VARCHAR(255) NOT NULL,
+			storage_value TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			UNIQUE KEY unique_plugin_key (plugin_name, storage_key),
+			INDEX idx_plugin_storage_plugin (plugin_name),
+			INDEX idx_plugin_storage_key (storage_key),
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
+		)`,
+
+		"plugin_metrics": `CREATE TABLE IF NOT EXISTS plugin_metrics (
+			id INTEGER PRIMARY KEY AUTO_INCREMENT,
+			plugin_name VARCHAR(255) NOT NULL,
+			metric_name VARCHAR(255) NOT NULL,
+			metric_value DOUBLE NOT NULL,
+			tags JSON,
+			recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_plugin_metrics_plugin (plugin_name),
+			INDEX idx_plugin_metrics_name (metric_name),
+			INDEX idx_plugin_metrics_recorded (recorded_at),
+			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
 		)`,
 	}
 }

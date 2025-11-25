@@ -1,0 +1,36 @@
+name: minimal-plugin
+version: 1.0.0
+description: A minimal example plugin demonstrating the basic plugin interface
+author: Rockstar Framework Team
+
+framework:
+  version: ">=1.0.0"
+
+dependencies: []
+
+permissions:
+  database: false
+  cache: false
+  router: false
+  config: false
+  filesystem: false
+  network: false
+  exec: false
+
+config:
+  message:
+    type: string
+    default: "Hello from minimal plugin!"
+    description: A simple message to log
+
+hooks:
+  - type: startup
+    priority: 100
+  - type: shutdown
+    priority: 100
+
+events:
+  publishes: []
+  subscribes: []
+
+exports: []

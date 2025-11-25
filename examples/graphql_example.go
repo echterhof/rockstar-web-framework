@@ -49,9 +49,10 @@ func (m *mockDatabase) SaveWorkloadMetrics(metrics *pkg.WorkloadMetrics) error {
 func (m *mockDatabase) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*pkg.WorkloadMetrics, error) {
 	return nil, nil
 }
-func (m *mockDatabase) Migrate() error      { return nil }
-func (m *mockDatabase) CreateTables() error { return nil }
-func (m *mockDatabase) DropTables() error   { return nil }
+func (m *mockDatabase) Migrate() error                { return nil }
+func (m *mockDatabase) CreateTables() error           { return nil }
+func (m *mockDatabase) DropTables() error             { return nil }
+func (m *mockDatabase) InitializePluginTables() error { return nil }
 
 func (m *mockDatabase) CheckRateLimit(key string, limit int, window time.Duration) (bool, error) {
 	m.mu.RLock()

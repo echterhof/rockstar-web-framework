@@ -355,9 +355,10 @@ func (m *mockDatabase) CheckRateLimit(key string, limit int, window time.Duratio
 func (m *mockDatabase) IncrementRateLimit(key string, window time.Duration) error {
 	return nil
 }
-func (m *mockDatabase) Migrate() error      { return nil }
-func (m *mockDatabase) CreateTables() error { return nil }
-func (m *mockDatabase) DropTables() error   { return nil }
+func (m *mockDatabase) Migrate() error                { return nil }
+func (m *mockDatabase) CreateTables() error           { return nil }
+func (m *mockDatabase) DropTables() error             { return nil }
+func (m *mockDatabase) InitializePluginTables() error { return nil }
 
 type mockLogger struct{}
 

@@ -163,7 +163,7 @@ func TestSessionManager_Create(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -209,7 +209,7 @@ func TestSessionManager_Load(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -241,7 +241,7 @@ func TestSessionManager_Save(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -285,7 +285,7 @@ func TestSessionManager_Destroy(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -318,7 +318,7 @@ func TestSessionManager_DataOperations(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -380,7 +380,7 @@ func TestSessionManager_EncryptedCookie(t *testing.T) {
 	config.EncryptionKey = generateEncryptionKey()
 	config.StorageType = SessionStorageDatabase
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -430,7 +430,7 @@ func TestSessionManager_Expiration(t *testing.T) {
 	config.StorageType = SessionStorageDatabase
 	config.SessionLifetime = 100 * time.Millisecond
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -479,7 +479,7 @@ func TestSessionManager_Refresh(t *testing.T) {
 	config.StorageType = SessionStorageDatabase
 	config.SessionLifetime = 200 * time.Millisecond
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {
@@ -606,7 +606,7 @@ func TestSessionManager_CleanupExpired(t *testing.T) {
 	config.StorageType = SessionStorageDatabase
 	config.SessionLifetime = 100 * time.Millisecond
 
-	db := newMockDatabaseManager()
+	db := NewMockDatabaseManager()
 	db.Connect(DatabaseConfig{Driver: "mock"})
 	sm, err := NewSessionManager(config, db, nil)
 	if err != nil {

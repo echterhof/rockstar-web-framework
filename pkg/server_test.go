@@ -57,20 +57,28 @@ func TestServerListen(t *testing.T) {
 
 	// Start server on random port
 	addr := "127.0.0.1:0"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 
 	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
+
+	// Clean up
+	defer func() {
+		if server.IsRunning() {
+			server.Close()
+		}
+	}()
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
 	}
-
-	// Clean up
-	defer server.Close()
 }
 
 // TestServerHTTP1Request tests HTTP/1.1 request handling
@@ -99,14 +107,18 @@ func TestServerHTTP1Request(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18080"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
 	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Test GET request
 	resp, err := http.Get("http://" + addr + "/hello")
@@ -169,13 +181,17 @@ func TestServerGracefulShutdown(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18081"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 
 	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
@@ -185,7 +201,7 @@ func TestServerGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = server.Shutdown(ctx)
+	err := server.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("Graceful shutdown failed: %v", err)
 	}
@@ -214,15 +230,19 @@ func TestServerShutdownWithTimeout(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18082"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
 
 	// Test GracefulShutdown with timeout
-	err = server.GracefulShutdown(2 * time.Second)
+	err := server.GracefulShutdown(2 * time.Second)
 	if err != nil {
 		t.Errorf("GracefulShutdown failed: %v", err)
 	}
@@ -258,18 +278,22 @@ func TestServerShutdownHooks(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18083"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
 
 	// Shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = server.Shutdown(ctx)
+	err := server.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("Shutdown failed: %v", err)
 	}
@@ -298,19 +322,23 @@ func TestServerClose(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18084"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
 	}
 
 	// Close immediately
-	err = server.Close()
+	err := server.Close()
 	if err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
@@ -350,13 +378,17 @@ func TestServerMiddleware(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18085"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Make request
 	resp, err := http.Get("http://" + addr + "/test")
@@ -400,13 +432,17 @@ func TestServerErrorHandler(t *testing.T) {
 
 	// Start server
 	addr := "127.0.0.1:18086"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Make request that triggers error
 	resp, err := http.Get("http://" + addr + "/error")
@@ -518,16 +554,20 @@ func TestServerDoubleStart(t *testing.T) {
 
 	// Start server first time
 	addr := "127.0.0.1:18087"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
-	// Try to start again
-	err = server.Listen(addr)
+	// Try to start again - should fail because server is already running
+	err := server.Listen(addr)
 	if err == nil {
 		t.Error("Expected error when starting already running server")
 	}

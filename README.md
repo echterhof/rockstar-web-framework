@@ -29,6 +29,7 @@ A high-performance, enterprise-grade Go web framework with multi-protocol suppor
 - **Forward Proxy**: Built-in load balancing and circuit breakers
 
 ### Developer Experience
+- **Plugin System**: Extensible plugin architecture with hot reload support
 - **Middleware System**: Flexible, configurable middleware pipeline
 - **Pipeline Processing**: Parallel data processing with goroutines
 - **Template Engine**: Go template support with context passing
@@ -94,6 +95,8 @@ func main() {
 - **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation catalog
 - **[Getting Started](docs/GETTING_STARTED.md)** - Step-by-step tutorial
 - **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation
+- **[Plugin System](docs/PLUGIN_SYSTEM.md)** - Plugin system overview and API
+- **[Plugin Development](docs/PLUGIN_DEVELOPMENT.md)** - Guide to creating plugins
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment
 - **[Changelog](docs/CHANGELOG.md)** - Documentation updates
 
@@ -277,8 +280,47 @@ The `examples/` directory contains comprehensive examples:
 - **session_example.go**: Session management
 - **i18n_example.go**: Internationalization
 - **monitoring_example.go**: Metrics and profiling
+- **plugin_usage_example.go**: Plugin system usage
 
 ### Advanced Features
+
+#### Plugin System
+
+```go
+// Load plugins from configuration
+config := pkg.FrameworkConfig{
+    PluginConfig: pkg.PluginConfig{
+        Enabled:   true,
+        Directory: "./plugins",
+        Plugins: []pkg.PluginLoadConfig{
+            {
+                Name:    "auth-plugin",
+                Enabled: true,
+                Path:    "./plugins/auth-plugin",
+                Config: map[string]interface{}{
+                    "jwt_secret": "secret",
+                },
+            },
+        },
+    },
+}
+
+app, err := pkg.New(config)
+
+// Access plugin manager
+pluginManager := app.PluginManager()
+
+// Load a plugin dynamically
+err = pluginManager.LoadPlugin("./plugins/my-plugin", pluginConfig)
+
+// Hot reload a plugin
+err = pluginManager.ReloadPlugin("my-plugin")
+
+// Get plugin health
+health := pluginManager.GetPluginHealth("my-plugin")
+```
+
+See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT.md) for creating plugins.
 
 #### Multi-Tenancy
 

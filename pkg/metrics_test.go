@@ -87,9 +87,10 @@ func (m *mockDatabaseForMetrics) CheckRateLimit(key string, limit int, window ti
 func (m *mockDatabaseForMetrics) IncrementRateLimit(key string, window time.Duration) error {
 	return nil
 }
-func (m *mockDatabaseForMetrics) Migrate() error      { return nil }
-func (m *mockDatabaseForMetrics) CreateTables() error { return nil }
-func (m *mockDatabaseForMetrics) DropTables() error   { return nil }
+func (m *mockDatabaseForMetrics) Migrate() error                { return nil }
+func (m *mockDatabaseForMetrics) CreateTables() error           { return nil }
+func (m *mockDatabaseForMetrics) DropTables() error             { return nil }
+func (m *mockDatabaseForMetrics) InitializePluginTables() error { return nil }
 
 // TestNewMetricsCollector tests creating a new metrics collector
 func TestNewMetricsCollector(t *testing.T) {

@@ -1,0 +1,362 @@
+# ============================================================================
+# Rockstar Web Framework - Plugin Configuration Example (TOML)
+# ============================================================================
+#
+# This file demonstrates all available plugin configuration options in TOML format.
+# The plugin system allows you to extend framework functionality through
+# dynamically loadable modules.
+#
+# Requirements Addressed:
+# - 3.1: Support for TOML configuration format
+# - 3.3: Enabled flag filtering for selective plugin loading
+# - 3.4: Initialization parameters passed to plugins
+# - 3.5: Load order preservation through configuration sequence
+#
+# ============================================================================
+
+[plugins]
+# Enable or disable the entire plugin system
+enabled = true
+
+# Base directory for plugin discovery (optional)
+directory = "./plugins"
+
+# Maximum number of concurrent plugin operations (optional)
+max_concurrent_operations = 10
+
+# Error threshold before auto-disabling a plugin (optional)
+error_threshold = 100
+
+# Enable hot reload support (optional)
+hot_reload_enabled = true
+
+# Plugin load timeout in seconds (optional)
+load_timeout = 30
+
+# ============================================================================
+# Example 1: Minimal Plugin Configuration
+# ============================================================================
+# This demonstrates the minimum required configuration for a plugin
+
+[[plugins.plugins]]
+name = "minimal-plugin"
+enabled = true
+path = "./plugins/minimal-plugin"
+
+# ============================================================================
+# Example 2: Authentication Plugin with Full Configuration
+# ============================================================================
+
+[[plugins.plugins]]
+name = "auth-plugin"
+enabled = true
+path = "./plugins/auth-plugin"
+priority = 200
+
+# Plugin-specific configuration (initialization parameters)
+[plugins.plugins.config]
+jwt_secret = "your-secret-key-here"
+token_duration = "2h"
+refresh_token_duration = "168h"
+
+require_auth = true
+allow_anonymous = false
+
+excluded_paths = [
+    "/health",
+    "/metrics",
+    "/public",
+    "/api/docs",
+    "/api/v1/auth/login",
+    "/api/v1/auth/register"
+]
+
+session_cookie_name = "auth_session"
+session_duration = "24h"
+
+enable_csrf = true
+enable_rate_limiting = true
+max_login_attempts = 5
+lockout_duration = "15m"
+
+# Permissions control what framework services the plugin can access
+[plugins.plugins.permissions]
+database = true
+cache = true
+router = true
+config = true
+filesystem = false
+network = false
+exec = false
+
+[plugins.plugins.permissions.custom]
+user_management = true
+role_management = true
+
+# ============================================================================
+# Example 3: Logging Plugin
+# ============================================================================
+
+[[plugins.plugins]]
+name = "logging-plugin"
+enabled = true
+path = "./plugins/logging-plugin"
+priority = 50
+
+[plugins.plugins.config]
+log_requests = true
+log_responses = true
+log_headers = true
+log_body = false
+log_query_params = true
+
+request_log_level = "info"
+error_log_level = "error"
+
+output_format = "json"
+include_timestamp = true
+include_request_id = true
+
+async_logging = true
+buffer_size = 1000
+
+excluded_paths = ["/health", "/metrics"]
+excluded_methods = []
+
+mask_headers = ["Authorization", "Cookie", "X-API-Key"]
+mask_query_params = ["password", "token", "api_key"]
+
+[plugins.plugins.permissions]
+database = false
+cache = false
+router = true
+config = true
+filesystem = true
+network = false
+exec = false
+
+# ============================================================================
+# Example 4: Cache Plugin
+# ============================================================================
+
+[[plugins.plugins]]
+name = "cache-plugin"
+enabled = true
+path = "./plugins/cache-plugin"
+priority = 150
+
+[plugins.plugins.config]
+enabled = true
+cache_duration = "10m"
+max_cache_size = "100MB"
+
+cache_methods = ["GET", "HEAD"]
+
+include_query_params = true
+include_headers = false
+custom_key_prefix = "api_cache"
+
+excluded_paths = ["/admin", "/api/auth", "/api/user/profile"]
+excluded_content_types = ["text/event-stream", "application/octet-stream"]
+
+invalidate_on_mutation = true
+invalidation_patterns = ["/api/users/*", "/api/posts/*"]
+
+compression_enabled = true
+compression_threshold = "1KB"
+
+[plugins.plugins.permissions]
+database = false
+cache = true
+router = true
+config = true
+filesystem = false
+network = false
+exec = false
+
+# ============================================================================
+# Example 5: Rate Limiting Plugin
+# ============================================================================
+
+[[plugins.plugins]]
+name = "rate-limit-plugin"
+enabled = true
+path = "./plugins/rate-limit-plugin"
+priority = 180
+
+[plugins.plugins.config]
+global_limit = 1000
+global_window = "1m"
+
+per_ip_limit = 100
+per_ip_window = "1m"
+
+per_user_limit = 500
+per_user_window = "1m"
+
+return_rate_limit_headers = true
+rate_limit_exceeded_message = "Rate limit exceeded. Please try again later."
+rate_limit_exceeded_status = 429
+
+storage_backend = "redis"
+redis_url = "redis://localhost:6379"
+
+# Custom rate limits for specific paths
+[[plugins.plugins.config.path_limits]]
+path = "/api/auth/login"
+limit = 5
+window = "5m"
+
+[[plugins.plugins.config.path_limits]]
+path = "/api/search"
+limit = 50
+window = "1m"
+
+[[plugins.plugins.config.path_limits]]
+path = "/api/upload"
+limit = 10
+window = "1h"
+
+[plugins.plugins.permissions]
+database = false
+cache = true
+router = true
+config = true
+filesystem = false
+network = true
+exec = false
+
+# ============================================================================
+# Example 6: Metrics Plugin
+# ============================================================================
+
+[[plugins.plugins]]
+name = "metrics-plugin"
+enabled = true
+path = "./plugins/metrics-plugin"
+priority = 75
+
+[plugins.plugins.config]
+collect_request_metrics = true
+collect_response_metrics = true
+collect_error_metrics = true
+collect_performance_metrics = true
+
+enable_counters = true
+enable_gauges = true
+enable_histograms = true
+enable_summaries = true
+
+sampling_rate = 1.0
+aggregation_interval = "10s"
+
+export_format = "prometheus"
+export_endpoint = "/metrics"
+export_interval = "15s"
+
+[plugins.plugins.config.custom_labels]
+environment = "production"
+service = "api"
+version = "1.0.0"
+
+[plugins.plugins.permissions]
+database = false
+cache = false
+router = true
+config = true
+filesystem = false
+network = true
+exec = false
+
+# ============================================================================
+# Example 7: Plugin with Dependencies
+# ============================================================================
+
+[[plugins.plugins]]
+name = "advanced-auth-plugin"
+enabled = false
+path = "./plugins/advanced-auth-plugin"
+priority = 210
+
+# OAuth provider configuration
+[[plugins.plugins.config.oauth_providers]]
+name = "google"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+redirect_url = "https://yourdomain.com/auth/google/callback"
+
+[[plugins.plugins.config.oauth_providers]]
+name = "github"
+client_id = "your-client-id"
+client_secret = "your-client-secret"
+redirect_url = "https://yourdomain.com/auth/github/callback"
+
+[plugins.plugins.permissions]
+database = true
+cache = true
+router = true
+config = true
+filesystem = false
+network = true
+exec = false
+
+# ============================================================================
+# Example 8: Disabled Plugin
+# ============================================================================
+# This plugin is configured but not loaded due to enabled = false
+
+[[plugins.plugins]]
+name = "experimental-plugin"
+enabled = false
+path = "./plugins/experimental-plugin"
+priority = 100
+
+[plugins.plugins.config]
+experimental_feature = true
+
+[plugins.plugins.permissions]
+database = false
+cache = false
+router = false
+config = false
+filesystem = false
+network = false
+exec = false
+
+# ============================================================================
+# Configuration Notes:
+# ============================================================================
+#
+# 1. Load Order (Requirement 3.5):
+#    Plugins are loaded in the order they appear in this file using the
+#    [[plugins.plugins]] array syntax. This is important for plugins with
+#    dependencies or when hook execution order matters.
+#
+# 2. Enabled Flag (Requirement 3.3):
+#    Only plugins with enabled = true are loaded. This allows you to keep
+#    plugin configurations in the file without loading them.
+#
+# 3. Initialization Parameters (Requirement 3.4):
+#    All values in the [plugins.plugins.config] section are passed to the
+#    plugin's Initialize() method as a map[string]interface{}.
+#
+# 4. Permissions:
+#    Permissions control what framework services a plugin can access.
+#    Always follow the principle of least privilege - only grant the
+#    permissions a plugin actually needs.
+#
+# 5. Priority:
+#    Higher priority plugins have their hooks executed first. Use this to
+#    control the order of middleware and hook execution.
+#
+# 6. Paths:
+#    Plugin paths can be:
+#    - Absolute: /usr/local/plugins/my-plugin
+#    - Relative to plugins.directory: ./my-plugin
+#    - Relative to application: ../plugins/my-plugin
+#
+# 7. TOML Array Syntax:
+#    Use [[plugins.plugins]] to define each plugin in the array.
+#    Use [[plugins.plugins.config.array_name]] for nested arrays.
+#
+# ============================================================================

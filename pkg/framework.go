@@ -29,6 +29,9 @@ type Framework struct {
 	// Proxy
 	proxy ProxyManager
 
+	// Plugin system
+	pluginManager PluginManager
+
 	// Middleware
 	globalMiddleware []MiddlewareFunc
 
@@ -71,6 +74,10 @@ type FrameworkConfig struct {
 
 	// Proxy configuration
 	ProxyConfig ProxyConfig
+
+	// Plugin configuration
+	PluginConfigPath string
+	EnablePlugins    bool
 }
 
 // New creates a new Framework instance with the given configuration
@@ -143,6 +150,45 @@ func New(config FrameworkConfig) (*Framework, error) {
 	serverMgr := NewServerManager()
 	f.serverManager = serverMgr
 
+	// Initialize plugin system if enabled
+	if config.EnablePlugins {
+		// Create plugin system components
+		logger := NewLogger(nil)
+		pluginRegistry := NewPluginRegistry()
+		pluginLoader := NewPluginLoader("./plugins", logger)
+		hookSystem := NewHookSystem(logger, metricsMgr)
+		eventBus := NewEventBus(logger)
+		permissionChecker := NewPermissionChecker(logger)
+
+		// Create plugin manager
+		pluginMgr := NewPluginManager(
+			pluginRegistry,
+			pluginLoader,
+			hookSystem,
+			eventBus,
+			permissionChecker,
+			logger,
+			metricsMgr,
+			router,
+			dbMgr,
+			f.cache,
+			f.config,
+		)
+		f.pluginManager = pluginMgr
+
+		// Load plugins from configuration if specified
+		if config.PluginConfigPath != "" {
+			if err := pluginMgr.LoadPluginsFromConfig(config.PluginConfigPath); err != nil {
+				return nil, fmt.Errorf("failed to load plugins from config: %w", err)
+			}
+
+			// Resolve dependencies and initialize plugins
+			if err := pluginMgr.InitializeAll(); err != nil {
+				return nil, fmt.Errorf("failed to initialize plugins: %w", err)
+			}
+		}
+	}
+
 	return f, nil
 }
 
@@ -166,9 +212,73 @@ func (f *Framework) RegisterShutdownHook(hook func(ctx context.Context) error) {
 	f.shutdownHooks = append(f.shutdownHooks, hook)
 }
 
+// executeShutdownHooks executes all shutdown hooks including plugin hooks
+func (f *Framework) executeShutdownHooks(ctx context.Context) error {
+	// Execute plugin shutdown hooks first if plugin system is enabled
+	if f.pluginManager != nil {
+		// Execute plugin shutdown hooks through the hook system
+		if pm, ok := f.pluginManager.(*pluginManagerImpl); ok {
+			if pm.hookSystem != nil {
+				// Create a minimal context for hook execution
+				hookCtx := &shutdownHookContext{ctx: ctx}
+				if err := pm.hookSystem.ExecuteHooks(HookTypeShutdown, hookCtx); err != nil {
+					// Log error but continue with shutdown
+					fmt.Printf("plugin shutdown hooks failed: %v\n", err)
+				}
+			}
+		}
+
+		// Stop all plugins
+		if err := f.pluginManager.StopAll(); err != nil {
+			// Log error but continue with shutdown
+			fmt.Printf("failed to stop plugins: %v\n", err)
+		}
+	}
+
+	// Execute framework shutdown hooks
+	for _, hook := range f.shutdownHooks {
+		if err := hook(ctx); err != nil {
+			return fmt.Errorf("shutdown hook failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // RegisterStartupHook registers a function to be called during startup
 func (f *Framework) RegisterStartupHook(hook func(ctx context.Context) error) {
 	f.startupHooks = append(f.startupHooks, hook)
+}
+
+// executeStartupHooks executes all startup hooks including plugin hooks
+func (f *Framework) executeStartupHooks(ctx context.Context) error {
+	// Execute framework startup hooks first
+	for _, hook := range f.startupHooks {
+		if err := hook(ctx); err != nil {
+			return fmt.Errorf("startup hook failed: %w", err)
+		}
+	}
+
+	// Execute plugin startup hooks if plugin system is enabled
+	if f.pluginManager != nil {
+		// Start all plugins
+		if err := f.pluginManager.StartAll(); err != nil {
+			return fmt.Errorf("failed to start plugins: %w", err)
+		}
+
+		// Execute plugin startup hooks through the hook system
+		if pm, ok := f.pluginManager.(*pluginManagerImpl); ok {
+			if pm.hookSystem != nil {
+				// Create a minimal context for hook execution
+				hookCtx := &startupHookContext{ctx: ctx}
+				if err := pm.hookSystem.ExecuteHooks(HookTypeStartup, hookCtx); err != nil {
+					return fmt.Errorf("plugin startup hooks failed: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // Listen starts the framework server on the specified address
@@ -196,10 +306,8 @@ func (f *Framework) ListenTLS(addr, certFile, keyFile string) error {
 
 	// Run startup hooks
 	ctx := context.Background()
-	for _, hook := range f.startupHooks {
-		if err := hook(ctx); err != nil {
-			return fmt.Errorf("startup hook failed: %w", err)
-		}
+	if err := f.executeStartupHooks(ctx); err != nil {
+		return err
 	}
 
 	f.isRunning = true
@@ -228,10 +336,8 @@ func (f *Framework) ListenQUIC(addr, certFile, keyFile string) error {
 
 	// Run startup hooks
 	ctx := context.Background()
-	for _, hook := range f.startupHooks {
-		if err := hook(ctx); err != nil {
-			return fmt.Errorf("startup hook failed: %w", err)
-		}
+	if err := f.executeStartupHooks(ctx); err != nil {
+		return err
 	}
 
 	f.isRunning = true
@@ -254,6 +360,15 @@ func (f *Framework) ListenWithConfig(addr string, config ServerConfig) error {
 	logger := NewLogger(nil)
 	if httpServer, ok := server.(*httpServer); ok {
 		httpServer.SetManagers(logger, f.metrics, f.session, f.database, f.cache, f.config, f.i18n, f.security)
+
+		// Set hook system if plugin manager is available
+		if f.pluginManager != nil {
+			if pm, ok := f.pluginManager.(*pluginManagerImpl); ok {
+				if pm.hookSystem != nil {
+					httpServer.SetHookSystem(pm.hookSystem)
+				}
+			}
+		}
 	}
 
 	// Register shutdown hooks
@@ -263,10 +378,8 @@ func (f *Framework) ListenWithConfig(addr string, config ServerConfig) error {
 
 	// Run startup hooks
 	ctx := context.Background()
-	for _, hook := range f.startupHooks {
-		if err := hook(ctx); err != nil {
-			return fmt.Errorf("startup hook failed: %w", err)
-		}
+	if err := f.executeStartupHooks(ctx); err != nil {
+		return err
 	}
 
 	f.isRunning = true
@@ -278,11 +391,9 @@ func (f *Framework) Shutdown(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// Run shutdown hooks
-	for _, hook := range f.shutdownHooks {
-		if err := hook(ctx); err != nil {
-			return fmt.Errorf("shutdown hook failed: %w", err)
-		}
+	// Run shutdown hooks (including plugin hooks)
+	if err := f.executeShutdownHooks(ctx); err != nil {
+		return fmt.Errorf("shutdown hooks failed: %w", err)
 	}
 
 	// Shutdown all servers if running
@@ -366,4 +477,271 @@ func (f *Framework) Monitoring() MonitoringManager {
 // Proxy returns the framework's proxy manager
 func (f *Framework) Proxy() ProxyManager {
 	return f.proxy
+}
+
+// PluginManager returns the framework's plugin manager
+func (f *Framework) PluginManager() PluginManager {
+	return f.pluginManager
+}
+
+// startupHookContext is a minimal context implementation for startup hooks
+type startupHookContext struct {
+	ctx context.Context
+}
+
+func (c *startupHookContext) Context() context.Context {
+	return c.ctx
+}
+
+func (c *startupHookContext) Request() *Request {
+	return nil
+}
+
+func (c *startupHookContext) Response() ResponseWriter {
+	return nil
+}
+
+func (c *startupHookContext) Params() map[string]string {
+	return nil
+}
+
+func (c *startupHookContext) Query() map[string]string {
+	return nil
+}
+
+func (c *startupHookContext) Headers() map[string]string {
+	return nil
+}
+
+func (c *startupHookContext) Body() []byte {
+	return nil
+}
+
+func (c *startupHookContext) Session() SessionManager {
+	return nil
+}
+
+func (c *startupHookContext) User() *User {
+	return nil
+}
+
+func (c *startupHookContext) Tenant() *Tenant {
+	return nil
+}
+
+func (c *startupHookContext) DB() DatabaseManager {
+	return nil
+}
+
+func (c *startupHookContext) Cache() CacheManager {
+	return nil
+}
+
+func (c *startupHookContext) Config() ConfigManager {
+	return nil
+}
+
+func (c *startupHookContext) I18n() I18nManager {
+	return nil
+}
+
+func (c *startupHookContext) Files() FileManager {
+	return nil
+}
+
+func (c *startupHookContext) Logger() Logger {
+	return nil
+}
+
+func (c *startupHookContext) Metrics() MetricsCollector {
+	return nil
+}
+
+func (c *startupHookContext) WithTimeout(timeout time.Duration) Context {
+	return c
+}
+
+func (c *startupHookContext) WithCancel() (Context, context.CancelFunc) {
+	return c, func() {}
+}
+
+func (c *startupHookContext) JSON(statusCode int, data interface{}) error {
+	return nil
+}
+
+func (c *startupHookContext) XML(statusCode int, data interface{}) error {
+	return nil
+}
+
+func (c *startupHookContext) HTML(statusCode int, template string, data interface{}) error {
+	return nil
+}
+
+func (c *startupHookContext) String(statusCode int, message string) error {
+	return nil
+}
+
+func (c *startupHookContext) Redirect(statusCode int, url string) error {
+	return nil
+}
+
+func (c *startupHookContext) SetCookie(cookie *Cookie) error {
+	return nil
+}
+
+func (c *startupHookContext) GetCookie(name string) (*Cookie, error) {
+	return nil, nil
+}
+
+func (c *startupHookContext) SetHeader(key, value string) {}
+
+func (c *startupHookContext) GetHeader(key string) string {
+	return ""
+}
+
+func (c *startupHookContext) FormValue(key string) string {
+	return ""
+}
+
+func (c *startupHookContext) FormFile(key string) (*FormFile, error) {
+	return nil, nil
+}
+
+func (c *startupHookContext) IsAuthenticated() bool {
+	return false
+}
+
+func (c *startupHookContext) IsAuthorized(resource, action string) bool {
+	return false
+}
+
+// shutdownHookContext is a minimal context implementation for shutdown hooks
+type shutdownHookContext struct {
+	ctx context.Context
+}
+
+func (c *shutdownHookContext) Context() context.Context {
+	return c.ctx
+}
+
+func (c *shutdownHookContext) Request() *Request {
+	return nil
+}
+
+func (c *shutdownHookContext) Response() ResponseWriter {
+	return nil
+}
+
+func (c *shutdownHookContext) Params() map[string]string {
+	return nil
+}
+
+func (c *shutdownHookContext) Query() map[string]string {
+	return nil
+}
+
+func (c *shutdownHookContext) Headers() map[string]string {
+	return nil
+}
+
+func (c *shutdownHookContext) Body() []byte {
+	return nil
+}
+
+func (c *shutdownHookContext) Session() SessionManager {
+	return nil
+}
+
+func (c *shutdownHookContext) User() *User {
+	return nil
+}
+
+func (c *shutdownHookContext) Tenant() *Tenant {
+	return nil
+}
+
+func (c *shutdownHookContext) DB() DatabaseManager {
+	return nil
+}
+
+func (c *shutdownHookContext) Cache() CacheManager {
+	return nil
+}
+
+func (c *shutdownHookContext) Config() ConfigManager {
+	return nil
+}
+
+func (c *shutdownHookContext) I18n() I18nManager {
+	return nil
+}
+
+func (c *shutdownHookContext) Files() FileManager {
+	return nil
+}
+
+func (c *shutdownHookContext) Logger() Logger {
+	return nil
+}
+
+func (c *shutdownHookContext) Metrics() MetricsCollector {
+	return nil
+}
+
+func (c *shutdownHookContext) WithTimeout(timeout time.Duration) Context {
+	return c
+}
+
+func (c *shutdownHookContext) WithCancel() (Context, context.CancelFunc) {
+	return c, func() {}
+}
+
+func (c *shutdownHookContext) JSON(statusCode int, data interface{}) error {
+	return nil
+}
+
+func (c *shutdownHookContext) XML(statusCode int, data interface{}) error {
+	return nil
+}
+
+func (c *shutdownHookContext) HTML(statusCode int, template string, data interface{}) error {
+	return nil
+}
+
+func (c *shutdownHookContext) String(statusCode int, message string) error {
+	return nil
+}
+
+func (c *shutdownHookContext) Redirect(statusCode int, url string) error {
+	return nil
+}
+
+func (c *shutdownHookContext) SetCookie(cookie *Cookie) error {
+	return nil
+}
+
+func (c *shutdownHookContext) GetCookie(name string) (*Cookie, error) {
+	return nil, nil
+}
+
+func (c *shutdownHookContext) SetHeader(key, value string) {}
+
+func (c *shutdownHookContext) GetHeader(key string) string {
+	return ""
+}
+
+func (c *shutdownHookContext) FormValue(key string) string {
+	return ""
+}
+
+func (c *shutdownHookContext) FormFile(key string) (*FormFile, error) {
+	return nil, nil
+}
+
+func (c *shutdownHookContext) IsAuthenticated() bool {
+	return false
+}
+
+func (c *shutdownHookContext) IsAuthorized(resource, action string) bool {
+	return false
 }

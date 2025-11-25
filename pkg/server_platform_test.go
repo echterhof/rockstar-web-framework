@@ -29,13 +29,17 @@ func TestServerWithPlatformListener(t *testing.T) {
 	server.SetRouter(router)
 
 	addr := "127.0.0.1:19091"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server with platform listener: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Make request
 	resp, err := http.Get("http://" + addr + "/platform")
@@ -67,13 +71,17 @@ func TestServerWithBufferSizes(t *testing.T) {
 	server.SetRouter(router)
 
 	addr := "127.0.0.1:19092"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server with buffer sizes: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Make request
 	resp, err := http.Get("http://" + addr + "/buffer")
@@ -121,21 +129,26 @@ func TestServerWithReusePort(t *testing.T) {
 	// Both servers should be able to listen on the same port with SO_REUSEPORT
 	addr := "127.0.0.1:19093"
 
-	err := server1.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start first server: %v", err)
-	}
+	// Start servers in goroutines
+	go func() {
+		err := server1.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server 1 error: %v", err)
+		}
+	}()
 	defer server1.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
-	err = server2.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start second server with SO_REUSEPORT: %v", err)
-	}
+	go func() {
+		err := server2.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server 2 error: %v", err)
+		}
+	}()
 	defer server2.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Make requests - they should be load balanced between servers
 	for i := 0; i < 5; i++ {
@@ -185,13 +198,17 @@ func TestServerWithPreforkDisabled(t *testing.T) {
 	server.SetRouter(router)
 
 	addr := "127.0.0.1:19094"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	resp, err := http.Get("http://" + addr + "/noprefork")
 	if err != nil {
@@ -241,19 +258,24 @@ func TestServerMultiplePlatformListeners(t *testing.T) {
 	addr1 := "127.0.0.1:19095"
 	addr2 := "127.0.0.1:19096"
 
-	err := server1.Listen(addr1)
-	if err != nil {
-		t.Fatalf("Failed to start server 1: %v", err)
-	}
+	// Start servers in goroutines
+	go func() {
+		err := server1.Listen(addr1)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server 1 error: %v", err)
+		}
+	}()
 	defer server1.Close()
 
-	err = server2.Listen(addr2)
-	if err != nil {
-		t.Fatalf("Failed to start server 2: %v", err)
-	}
+	go func() {
+		err := server2.Listen(addr2)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server 2 error: %v", err)
+		}
+	}()
 	defer server2.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Test server 1
 	resp1, err := http.Get("http://" + addr1 + "/server1")
@@ -297,13 +319,17 @@ func TestServerPlatformCompatibility(t *testing.T) {
 	server.SetRouter(router)
 
 	addr := "127.0.0.1:19097"
-	err := server.Listen(addr)
-	if err != nil {
-		t.Fatalf("Failed to start server on %s: %v", runtime.GOOS, err)
-	}
+
+	// Start server in goroutine
+	go func() {
+		err := server.Listen(addr)
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Server error: %v", err)
+		}
+	}()
 	defer server.Close()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	resp, err := http.Get("http://" + addr + "/compat")
 	if err != nil {

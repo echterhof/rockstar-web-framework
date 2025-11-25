@@ -1,0 +1,51 @@
+name: auth-plugin
+version: 1.0.0
+description: Authentication plugin demonstrating hooks and middleware
+author: Rockstar Framework Team
+
+framework:
+  version: ">=1.0.0"
+
+dependencies: []
+
+permissions:
+  database: false
+  cache: false
+  router: true
+  config: false
+  filesystem: false
+  network: false
+  exec: false
+
+config:
+  token_duration:
+    type: duration
+    default: "1h"
+    description: Duration for which authentication tokens are valid
+  require_auth:
+    type: bool
+    default: true
+    description: Whether to require authentication for all requests
+  excluded_paths:
+    type: array
+    items: string
+    default: ["/health", "/public"]
+    description: Paths that don't require authentication
+
+hooks:
+  - type: startup
+    priority: 100
+  - type: pre_request
+    priority: 100
+  - type: shutdown
+    priority: 100
+
+events:
+  publishes:
+    - auth.started
+    - auth.stopped
+    - auth.authenticated
+  subscribes:
+    - auth.login
+
+exports: []

@@ -1,0 +1,54 @@
+name: logging-plugin
+version: 1.0.0
+description: Logging plugin demonstrating request/response logging
+author: Rockstar Framework Team
+
+framework:
+  version: ">=1.0.0"
+
+dependencies: []
+
+permissions:
+  database: false
+  cache: false
+  router: false
+  config: false
+  filesystem: false
+  network: false
+  exec: false
+
+config:
+  log_requests:
+    type: bool
+    default: true
+    description: Whether to log incoming requests
+  log_responses:
+    type: bool
+    default: true
+    description: Whether to log outgoing responses
+  log_headers:
+    type: bool
+    default: false
+    description: Whether to log request/response headers
+  log_body:
+    type: bool
+    default: false
+    description: Whether to log request/response bodies
+
+hooks:
+  - type: startup
+    priority: 100
+  - type: pre_request
+    priority: 50
+  - type: post_request
+    priority: 50
+  - type: shutdown
+    priority: 100
+
+events:
+  publishes: []
+  subscribes: []
+
+exports:
+  - name: LoggingService
+    description: Service for accessing logging statistics

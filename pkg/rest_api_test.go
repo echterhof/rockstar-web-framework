@@ -482,9 +482,10 @@ func (m *mockDB) SaveWorkloadMetrics(metrics *WorkloadMetrics) error          { 
 func (m *mockDB) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
 	return nil, nil
 }
-func (m *mockDB) Migrate() error      { return nil }
-func (m *mockDB) CreateTables() error { return nil }
-func (m *mockDB) DropTables() error   { return nil }
+func (m *mockDB) Migrate() error                { return nil }
+func (m *mockDB) CreateTables() error           { return nil }
+func (m *mockDB) DropTables() error             { return nil }
+func (m *mockDB) InitializePluginTables() error { return nil }
 
 // TestRESTAPIManager tests the REST API manager
 func TestRESTAPIManager(t *testing.T) {

@@ -52,6 +52,9 @@ type DatabaseManager interface {
 	Migrate() error
 	CreateTables() error
 	DropTables() error
+
+	// Plugin system support
+	InitializePluginTables() error
 }
 
 // Transaction represents a database transaction

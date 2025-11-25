@@ -1,0 +1,351 @@
+{
+  "_comment": "============================================================================",
+  "_comment_1": "Rockstar Web Framework - Plugin Configuration Example (JSON)",
+  "_comment_2": "============================================================================",
+  "_comment_3": "",
+  "_comment_4": "This file demonstrates all available plugin configuration options in JSON format.",
+  "_comment_5": "The plugin system allows you to extend framework functionality through",
+  "_comment_6": "dynamically loadable modules.",
+  "_comment_7": "",
+  "_comment_8": "Requirements Addressed:",
+  "_comment_9": "- 3.1: Support for JSON configuration format",
+  "_comment_10": "- 3.3: Enabled flag filtering for selective plugin loading",
+  "_comment_11": "- 3.4: Initialization parameters passed to plugins",
+  "_comment_12": "- 3.5: Load order preservation through configuration sequence",
+  "_comment_13": "",
+  "_comment_14": "============================================================================",
+  
+  "plugins": {
+    "enabled": true,
+    "directory": "./plugins",
+    "max_concurrent_operations": 10,
+    "error_threshold": 100,
+    "hot_reload_enabled": true,
+    "load_timeout": 30,
+    
+    "plugins": [
+      {
+        "_comment": "Example 1: Minimal Plugin Configuration",
+        "name": "minimal-plugin",
+        "enabled": true,
+        "path": "./plugins/minimal-plugin"
+      },
+      
+      {
+        "_comment": "Example 2: Authentication Plugin with Full Configuration",
+        "name": "auth-plugin",
+        "enabled": true,
+        "path": "./plugins/auth-plugin",
+        "priority": 200,
+        
+        "config": {
+          "jwt_secret": "your-secret-key-here",
+          "token_duration": "2h",
+          "refresh_token_duration": "168h",
+          
+          "require_auth": true,
+          "allow_anonymous": false,
+          
+          "excluded_paths": [
+            "/health",
+            "/metrics",
+            "/public",
+            "/api/docs",
+            "/api/v1/auth/login",
+            "/api/v1/auth/register"
+          ],
+          
+          "session_cookie_name": "auth_session",
+          "session_duration": "24h",
+          
+          "enable_csrf": true,
+          "enable_rate_limiting": true,
+          "max_login_attempts": 5,
+          "lockout_duration": "15m"
+        },
+        
+        "permissions": {
+          "database": true,
+          "cache": true,
+          "router": true,
+          "config": true,
+          "filesystem": false,
+          "network": false,
+          "exec": false,
+          "custom": {
+            "user_management": true,
+            "role_management": true
+          }
+        }
+      },
+      
+      {
+        "_comment": "Example 3: Logging Plugin",
+        "name": "logging-plugin",
+        "enabled": true,
+        "path": "./plugins/logging-plugin",
+        "priority": 50,
+        
+        "config": {
+          "log_requests": true,
+          "log_responses": true,
+          "log_headers": true,
+          "log_body": false,
+          "log_query_params": true,
+          
+          "request_log_level": "info",
+          "error_log_level": "error",
+          
+          "output_format": "json",
+          "include_timestamp": true,
+          "include_request_id": true,
+          
+          "async_logging": true,
+          "buffer_size": 1000,
+          
+          "excluded_paths": [
+            "/health",
+            "/metrics"
+          ],
+          "excluded_methods": [],
+          
+          "mask_headers": [
+            "Authorization",
+            "Cookie",
+            "X-API-Key"
+          ],
+          "mask_query_params": [
+            "password",
+            "token",
+            "api_key"
+          ]
+        },
+        
+        "permissions": {
+          "database": false,
+          "cache": false,
+          "router": true,
+          "config": true,
+          "filesystem": true,
+          "network": false,
+          "exec": false
+        }
+      },
+      
+      {
+        "_comment": "Example 4: Cache Plugin",
+        "name": "cache-plugin",
+        "enabled": true,
+        "path": "./plugins/cache-plugin",
+        "priority": 150,
+        
+        "config": {
+          "enabled": true,
+          "cache_duration": "10m",
+          "max_cache_size": "100MB",
+          
+          "cache_methods": [
+            "GET",
+            "HEAD"
+          ],
+          
+          "include_query_params": true,
+          "include_headers": false,
+          "custom_key_prefix": "api_cache",
+          
+          "excluded_paths": [
+            "/admin",
+            "/api/auth",
+            "/api/user/profile"
+          ],
+          "excluded_content_types": [
+            "text/event-stream",
+            "application/octet-stream"
+          ],
+          
+          "invalidate_on_mutation": true,
+          "invalidation_patterns": [
+            "/api/users/*",
+            "/api/posts/*"
+          ],
+          
+          "compression_enabled": true,
+          "compression_threshold": "1KB"
+        },
+        
+        "permissions": {
+          "database": false,
+          "cache": true,
+          "router": true,
+          "config": true,
+          "filesystem": false,
+          "network": false,
+          "exec": false
+        }
+      },
+      
+      {
+        "_comment": "Example 5: Rate Limiting Plugin",
+        "name": "rate-limit-plugin",
+        "enabled": true,
+        "path": "./plugins/rate-limit-plugin",
+        "priority": 180,
+        
+        "config": {
+          "global_limit": 1000,
+          "global_window": "1m",
+          
+          "per_ip_limit": 100,
+          "per_ip_window": "1m",
+          
+          "per_user_limit": 500,
+          "per_user_window": "1m",
+          
+          "path_limits": [
+            {
+              "path": "/api/auth/login",
+              "limit": 5,
+              "window": "5m"
+            },
+            {
+              "path": "/api/search",
+              "limit": 50,
+              "window": "1m"
+            },
+            {
+              "path": "/api/upload",
+              "limit": 10,
+              "window": "1h"
+            }
+          ],
+          
+          "return_rate_limit_headers": true,
+          "rate_limit_exceeded_message": "Rate limit exceeded. Please try again later.",
+          "rate_limit_exceeded_status": 429,
+          
+          "storage_backend": "redis",
+          "redis_url": "redis://localhost:6379"
+        },
+        
+        "permissions": {
+          "database": false,
+          "cache": true,
+          "router": true,
+          "config": true,
+          "filesystem": false,
+          "network": true,
+          "exec": false
+        }
+      },
+      
+      {
+        "_comment": "Example 6: Metrics Plugin",
+        "name": "metrics-plugin",
+        "enabled": true,
+        "path": "./plugins/metrics-plugin",
+        "priority": 75,
+        
+        "config": {
+          "collect_request_metrics": true,
+          "collect_response_metrics": true,
+          "collect_error_metrics": true,
+          "collect_performance_metrics": true,
+          
+          "enable_counters": true,
+          "enable_gauges": true,
+          "enable_histograms": true,
+          "enable_summaries": true,
+          
+          "sampling_rate": 1.0,
+          "aggregation_interval": "10s",
+          
+          "export_format": "prometheus",
+          "export_endpoint": "/metrics",
+          "export_interval": "15s",
+          
+          "custom_labels": {
+            "environment": "production",
+            "service": "api",
+            "version": "1.0.0"
+          }
+        },
+        
+        "permissions": {
+          "database": false,
+          "cache": false,
+          "router": true,
+          "config": true,
+          "filesystem": false,
+          "network": true,
+          "exec": false
+        }
+      },
+      
+      {
+        "_comment": "Example 7: Plugin with Dependencies",
+        "name": "advanced-auth-plugin",
+        "enabled": false,
+        "path": "./plugins/advanced-auth-plugin",
+        "priority": 210,
+        
+        "config": {
+          "oauth_providers": [
+            {
+              "name": "google",
+              "client_id": "your-client-id",
+              "client_secret": "your-client-secret",
+              "redirect_url": "https://yourdomain.com/auth/google/callback"
+            },
+            {
+              "name": "github",
+              "client_id": "your-client-id",
+              "client_secret": "your-client-secret",
+              "redirect_url": "https://yourdomain.com/auth/github/callback"
+            }
+          ]
+        },
+        
+        "permissions": {
+          "database": true,
+          "cache": true,
+          "router": true,
+          "config": true,
+          "filesystem": false,
+          "network": true,
+          "exec": false
+        }
+      },
+      
+      {
+        "_comment": "Example 8: Disabled Plugin",
+        "name": "experimental-plugin",
+        "enabled": false,
+        "path": "./plugins/experimental-plugin",
+        "priority": 100,
+        
+        "config": {
+          "experimental_feature": true
+        },
+        
+        "permissions": {
+          "database": false,
+          "cache": false,
+          "router": false,
+          "config": false,
+          "filesystem": false,
+          "network": false,
+          "exec": false
+        }
+      }
+    ]
+  },
+  
+  "_notes": {
+    "load_order": "Plugins are loaded in the order they appear in the plugins array (Requirement 3.5)",
+    "enabled_flag": "Only plugins with enabled: true are loaded (Requirement 3.3)",
+    "initialization_parameters": "All values in the config object are passed to the plugin's Initialize() method (Requirement 3.4)",
+    "permissions": "Permissions control what framework services a plugin can access. Follow the principle of least privilege.",
+    "priority": "Higher priority plugins have their hooks executed first. Use this to control execution order.",
+    "paths": "Plugin paths can be absolute or relative to plugins.directory or the application directory"
+  }
+}

@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/BurntSushi/toml"
+	"gopkg.in/yaml.v3"
 )
 
 // parseJSON parses JSON format configuration
@@ -78,89 +81,12 @@ func parseINI(data []byte) (map[string]interface{}, error) {
 	return result, nil
 }
 
-// parseTOML parses TOML format configuration
+// parseTOML parses TOML format configuration using github.com/BurntSushi/toml
 func parseTOML(data []byte) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-
-	var currentSection string
-	var currentTable map[string]interface{}
-	rootTable := result
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Check for table header [section]
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			tableName := strings.Trim(line, "[]")
-
-			// Handle nested tables with dots
-			if strings.Contains(tableName, ".") {
-				parts := strings.Split(tableName, ".")
-				current := rootTable
-
-				for i, part := range parts {
-					if i == len(parts)-1 {
-						// Last part - create new table
-						newTable := make(map[string]interface{})
-						current[part] = newTable
-						currentTable = newTable
-						currentSection = tableName
-					} else {
-						// Intermediate part - navigate or create
-						if existing, ok := current[part]; ok {
-							if existingMap, ok := existing.(map[string]interface{}); ok {
-								current = existingMap
-							} else {
-								return nil, fmt.Errorf("invalid nested table structure")
-							}
-						} else {
-							newTable := make(map[string]interface{})
-							current[part] = newTable
-							current = newTable
-						}
-					}
-				}
-			} else {
-				// Simple table
-				newTable := make(map[string]interface{})
-				rootTable[tableName] = newTable
-				currentTable = newTable
-				currentSection = tableName
-			}
-			continue
-		}
-
-		// Parse key-value pair
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		// Parse TOML value
-		parsedValue := parseTOMLValue(value)
-
-		if currentSection == "" {
-			// Root level
-			rootTable[key] = parsedValue
-		} else {
-			// In a table
-			currentTable[key] = parsedValue
-		}
+	var result map[string]interface{}
+	if err := toml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse TOML: %w", err)
 	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error scanning TOML: %w", err)
-	}
-
 	return result, nil
 }
 
@@ -201,77 +127,12 @@ func parseTOMLValue(value string) interface{} {
 	return parseValue(value)
 }
 
-// parseYAML parses YAML format configuration (simplified parser)
+// parseYAML parses YAML format configuration using yaml.v3
 func parseYAML(data []byte) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-
-	var stack []map[string]interface{}
-	var indentStack []int
-	stack = append(stack, result)
-	indentStack = append(indentStack, -1)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		// Calculate indentation
-		indent := len(line) - len(strings.TrimLeft(line, " "))
-
-		// Pop stack if we've decreased indentation
-		for len(indentStack) > 1 && indent <= indentStack[len(indentStack)-1] {
-			stack = stack[:len(stack)-1]
-			indentStack = indentStack[:len(indentStack)-1]
-		}
-
-		// Parse key-value or key only
-		if strings.Contains(trimmed, ":") {
-			parts := strings.SplitN(trimmed, ":", 2)
-			key := strings.TrimSpace(parts[0])
-			valueStr := ""
-			if len(parts) > 1 {
-				valueStr = strings.TrimSpace(parts[1])
-			}
-
-			current := stack[len(stack)-1]
-
-			if valueStr == "" {
-				// This is a nested object
-				newMap := make(map[string]interface{})
-				current[key] = newMap
-				stack = append(stack, newMap)
-				indentStack = append(indentStack, indent)
-			} else {
-				// This is a key-value pair
-				current[key] = parseYAMLValue(valueStr)
-			}
-		} else if strings.HasPrefix(trimmed, "-") {
-			// Array item
-			item := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
-
-			// For simplicity, we'll treat arrays as comma-separated values
-			// A full YAML parser would be more complex
-			current := stack[len(stack)-1]
-
-			// Find or create array for last key
-			// This is a simplified approach
-			if item != "" {
-				// Store as individual items with numeric keys
-				arrayKey := fmt.Sprintf("item_%d", len(current))
-				current[arrayKey] = parseYAMLValue(item)
-			}
-		}
+	var result map[string]interface{}
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error scanning YAML: %w", err)
-	}
-
 	return result, nil
 }
 

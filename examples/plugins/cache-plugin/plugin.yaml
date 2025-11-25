@@ -1,0 +1,55 @@
+name: cache-plugin
+version: 1.0.0
+description: Cache plugin demonstrating caching middleware
+author: Rockstar Framework Team
+
+framework:
+  version: ">=1.0.0"
+
+dependencies: []
+
+permissions:
+  database: false
+  cache: true
+  router: true
+  config: false
+  filesystem: false
+  network: false
+  exec: false
+
+config:
+  cache_duration:
+    type: duration
+    default: "5m"
+    description: Duration for which responses are cached
+  enabled:
+    type: bool
+    default: true
+    description: Whether caching is enabled
+  cache_methods:
+    type: array
+    items: string
+    default: ["GET"]
+    description: HTTP methods to cache
+  excluded_paths:
+    type: array
+    items: string
+    default: ["/admin", "/api/auth"]
+    description: Paths to exclude from caching
+
+hooks:
+  - type: startup
+    priority: 100
+  - type: pre_response
+    priority: 50
+  - type: shutdown
+    priority: 100
+
+events:
+  publishes: []
+  subscribes:
+    - cache.invalidate
+
+exports:
+  - name: CacheService
+    description: Service for accessing cache statistics

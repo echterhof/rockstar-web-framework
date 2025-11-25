@@ -114,9 +114,10 @@ func (m *MockDatabaseManager) CheckRateLimit(key string, limit int, window time.
 func (m *MockDatabaseManager) IncrementRateLimit(key string, window time.Duration) error {
 	return nil
 }
-func (m *MockDatabaseManager) Migrate() error      { return nil }
-func (m *MockDatabaseManager) CreateTables() error { return nil }
-func (m *MockDatabaseManager) DropTables() error   { return nil }
+func (m *MockDatabaseManager) Migrate() error                { return nil }
+func (m *MockDatabaseManager) CreateTables() error           { return nil }
+func (m *MockDatabaseManager) DropTables() error             { return nil }
+func (m *MockDatabaseManager) InitializePluginTables() error { return nil }
 
 // Test OAuth2 authentication
 func TestAuthenticateOAuth2_ValidToken(t *testing.T) {
