@@ -600,6 +600,14 @@ func (s *httpServer) createHandler() http.Handler {
 		default:
 		}
 
+		// Check if request context is already cancelled (HTTP/2 stream cancelled)
+		select {
+		case <-r.Context().Done():
+			// Client cancelled the request, don't process
+			return
+		default:
+		}
+
 		// Parse request
 		req, err := s.parseRequest(r)
 		if err != nil {
@@ -613,15 +621,29 @@ func (s *httpServer) createHandler() http.Handler {
 		// Create context
 		ctx := s.createContext(req, respWriter, r)
 
-		// Execute middleware and handler
-		if err := s.executeHandler(ctx); err != nil {
-			if s.errorHandler != nil {
-				if handlerErr := s.errorHandler(ctx, err); handlerErr != nil {
-					http.Error(w, handlerErr.Error(), http.StatusInternalServerError)
+		// Execute middleware and handler with cancellation monitoring
+		done := make(chan error, 1)
+		go func() {
+			done <- s.executeHandler(ctx)
+		}()
+
+		// Wait for handler completion or context cancellation
+		select {
+		case err := <-done:
+			// Handler completed normally
+			if err != nil {
+				if s.errorHandler != nil {
+					if handlerErr := s.errorHandler(ctx, err); handlerErr != nil {
+						http.Error(w, handlerErr.Error(), http.StatusInternalServerError)
+					}
+				} else {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
-			} else {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
+		case <-r.Context().Done():
+			// HTTP/2 stream was cancelled, stop processing
+			// The goroutine will continue but we won't wait for it
+			return
 		}
 	})
 }
@@ -693,6 +715,13 @@ func (s *httpServer) createContext(req *Request, respWriter ResponseWriter, http
 
 // executeHandler executes middleware chain and handler
 func (s *httpServer) executeHandler(ctx Context) error {
+	// Check for cancellation before starting
+	select {
+	case <-ctx.Context().Done():
+		return ctx.Context().Err()
+	default:
+	}
+
 	// If no router is set, return error
 	if s.router == nil {
 		return errors.New("no router configured")
@@ -719,6 +748,12 @@ func (s *httpServer) executeHandler(ctx Context) error {
 		mw := route.Middleware[i]
 		next := handler
 		handler = func(ctx Context) error {
+			// Check for cancellation before each middleware
+			select {
+			case <-ctx.Context().Done():
+				return ctx.Context().Err()
+			default:
+			}
 			return mw(ctx, next)
 		}
 	}
@@ -728,6 +763,12 @@ func (s *httpServer) executeHandler(ctx Context) error {
 		mw := s.middleware[i]
 		next := handler
 		handler = func(ctx Context) error {
+			// Check for cancellation before each middleware
+			select {
+			case <-ctx.Context().Done():
+				return ctx.Context().Err()
+			default:
+			}
 			return mw(ctx, next)
 		}
 	}

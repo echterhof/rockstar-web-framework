@@ -14,7 +14,7 @@ This guide will help you get started with the Rockstar Web Framework, from insta
 
 Before you begin, ensure you have the following installed:
 
-- **Go 1.21 or higher**: [Download Go](https://golang.org/dl/)
+- **Go 1.25 or higher**: [Download Go](https://golang.org/dl/)
 - **Database** (optional): MySQL, PostgreSQL, MSSQL, or SQLite
 - **Redis** (optional): For distributed caching
 
@@ -31,7 +31,7 @@ go mod init my-rockstar-app
 ### 2. Install the Framework
 
 ```bash
-go get github.com/rockstar-framework/pkg
+go get github.com/echterhof/rockstar-web-framework/pkg
 ```
 
 ### 3. Install Database Driver (Optional)

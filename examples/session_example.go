@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/yourusername/rockstar/pkg"
+	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
@@ -259,56 +260,40 @@ func newMockContextWithTenant(tenant *pkg.Tenant) *mockContext {
 	}
 }
 
-func (m *mockContext) Request() interface{}                                { return nil }
-func (m *mockContext) Response() interface{}                               { return nil }
-func (m *mockContext) Param(key string) string                             { return "" }
-func (m *mockContext) Query(key string) string                             { return "" }
-func (m *mockContext) GetHeader(key string) string                         { return "" }
-func (m *mockContext) SetHeader(key, value string)                         {}
-func (m *mockContext) Status(code int)                                     {}
-func (m *mockContext) JSON(code int, data interface{}) error               { return nil }
-func (m *mockContext) String(code int, data string) error                  { return nil }
-func (m *mockContext) HTML(code int, html string) error                    { return nil }
-func (m *mockContext) Redirect(code int, url string) error                 { return nil }
-func (m *mockContext) File(filepath string) error                          { return nil }
-func (m *mockContext) Stream(contentType string, reader interface{}) error { return nil }
-func (m *mockContext) Bind(obj interface{}) error                          { return nil }
-func (m *mockContext) BindJSON(obj interface{}) error                      { return nil }
-func (m *mockContext) BindXML(obj interface{}) error                       { return nil }
-func (m *mockContext) BindQuery(obj interface{}) error                     { return nil }
-func (m *mockContext) Set(key string, value interface{})                   {}
-func (m *mockContext) Get(key string) (interface{}, bool)                  { return nil, false }
-func (m *mockContext) GetString(key string) string                         { return "" }
-func (m *mockContext) GetInt(key string) int                               { return 0 }
-func (m *mockContext) GetBool(key string) bool                             { return false }
-func (m *mockContext) ClientIP() string                                    { return "127.0.0.1" }
-func (m *mockContext) ContentType() string                                 { return "" }
-func (m *mockContext) IsWebSocket() bool                                   { return false }
-func (m *mockContext) Method() string                                      { return "GET" }
-func (m *mockContext) Path() string                                        { return "/" }
-func (m *mockContext) Headers() map[string]string                          { return nil }
-func (m *mockContext) Body() []byte                                        { return nil }
-func (m *mockContext) Session() pkg.SessionManager                         { return nil }
-func (m *mockContext) User() *pkg.User                                     { return m.user }
-func (m *mockContext) Tenant() *pkg.Tenant                                 { return m.tenant }
-func (m *mockContext) SetUser(user *pkg.User)                              { m.user = user }
-func (m *mockContext) SetTenant(tenant *pkg.Tenant)                        { m.tenant = tenant }
-func (m *mockContext) Cache() pkg.CacheManager                             { return nil }
-func (m *mockContext) Database() pkg.DatabaseManager                       { return nil }
-func (m *mockContext) Logger() pkg.Logger                                  { return nil }
-func (m *mockContext) Translate(key string, args ...interface{}) string    { return key }
-func (m *mockContext) SetLanguage(lang string)                             {}
-func (m *mockContext) GetLanguage() string                                 { return "en" }
-func (m *mockContext) Validate(obj interface{}) error                      { return nil }
-func (m *mockContext) RateLimiter() pkg.RateLimiter                        { return nil }
-func (m *mockContext) Metrics() pkg.MetricsCollector                       { return nil }
-func (m *mockContext) Next() error                                         { return nil }
-func (m *mockContext) Abort()                                              {}
-func (m *mockContext) AbortWithStatus(code int)                            {}
-func (m *mockContext) AbortWithError(code int, err error) error            { return err }
-func (m *mockContext) IsAborted() bool                                     { return false }
-func (m *mockContext) Error(err error)                                     {}
-func (m *mockContext) Errors() []error                                     { return nil }
+func (m *mockContext) Request() *pkg.Request                         { return nil }
+func (m *mockContext) Response() pkg.ResponseWriter                  { return nil }
+func (m *mockContext) Params() map[string]string                     { return nil }
+func (m *mockContext) Query() map[string]string                      { return nil }
+func (m *mockContext) Headers() map[string]string                    { return nil }
+func (m *mockContext) Body() []byte                                  { return nil }
+func (m *mockContext) Session() pkg.SessionManager                   { return nil }
+func (m *mockContext) User() *pkg.User                               { return m.user }
+func (m *mockContext) Tenant() *pkg.Tenant                           { return m.tenant }
+func (m *mockContext) DB() pkg.DatabaseManager                       { return nil }
+func (m *mockContext) Cache() pkg.CacheManager                       { return nil }
+func (m *mockContext) Config() pkg.ConfigManager                     { return nil }
+func (m *mockContext) I18n() pkg.I18nManager                         { return nil }
+func (m *mockContext) Files() pkg.FileManager                        { return nil }
+func (m *mockContext) Logger() pkg.Logger                            { return nil }
+func (m *mockContext) Metrics() pkg.MetricsCollector                 { return nil }
+func (m *mockContext) Context() context.Context                      { return context.Background() }
+func (m *mockContext) WithTimeout(timeout time.Duration) pkg.Context { return m }
+func (m *mockContext) WithCancel() (pkg.Context, context.CancelFunc) {
+	return m, func() {}
+}
+func (m *mockContext) JSON(statusCode int, data interface{}) error { return nil }
+func (m *mockContext) XML(statusCode int, data interface{}) error  { return nil }
+func (m *mockContext) HTML(statusCode int, template string, data interface{}) error {
+	return nil
+}
+func (m *mockContext) String(statusCode int, message string) error { return nil }
+func (m *mockContext) Redirect(statusCode int, url string) error   { return nil }
+func (m *mockContext) SetHeader(key, value string)                 {}
+func (m *mockContext) GetHeader(key string) string                 { return "" }
+func (m *mockContext) FormValue(key string) string                 { return "" }
+func (m *mockContext) FormFile(key string) (*pkg.FormFile, error)  { return nil, nil }
+func (m *mockContext) IsAuthenticated() bool                       { return false }
+func (m *mockContext) IsAuthorized(resource, action string) bool   { return false }
 func (m *mockContext) SetCookie(cookie *pkg.Cookie) error {
 	m.cookies[cookie.Name] = cookie
 	return nil

@@ -2,7 +2,7 @@
 
 A high-performance, enterprise-grade Go web framework with multi-protocol support, internationalization, and advanced security features.
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## 🌟 Features
@@ -39,7 +39,7 @@ A high-performance, enterprise-grade Go web framework with multi-protocol suppor
 ## 📦 Installation
 
 ```bash
-go get github.com/rockstar-framework/pkg
+go get github.com/echterhof/rockstar-web-framework/pkg
 ```
 
 ## 🚀 Quick Start
@@ -50,7 +50,7 @@ package main
 import (
     "log"
     "time"
-    "github.com/rockstar-framework/pkg"
+    "github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
@@ -87,6 +87,15 @@ func main() {
 ```
 
 ## 📚 Documentation
+
+### Quick Links
+
+- **[Quick Reference](docs/QUICK_REFERENCE.md)** - Fast lookup for common tasks
+- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation catalog
+- **[Getting Started](docs/GETTING_STARTED.md)** - Step-by-step tutorial
+- **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment
+- **[Changelog](docs/CHANGELOG.md)** - Documentation updates
 
 ### Project Structure
 

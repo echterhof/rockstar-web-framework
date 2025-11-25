@@ -17,7 +17,7 @@ This guide covers deploying Rockstar Web Framework applications to production en
 
 ### System Requirements
 
-- **Go**: 1.21 or higher
+- **Go**: 1.25 or higher
 - **Operating System**: Linux, macOS, Windows, AIX, Unix
 - **Memory**: Minimum 512MB RAM (2GB+ recommended)
 - **CPU**: 1+ cores (4+ recommended for production)
@@ -267,7 +267,7 @@ Create `Dockerfile`:
 
 ```dockerfile
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
