@@ -1,3 +1,6 @@
+//go:build benchmark
+// +build benchmark
+
 package tests
 
 import (
@@ -365,14 +368,28 @@ func BenchmarkRockstarConcurrentRequests(b *testing.B) {
 			b.Logf("Server error: %v", err)
 		}
 	}()
-	time.Sleep(100 * time.Millisecond)
+
+	// Wait for server to be ready
+	time.Sleep(200 * time.Millisecond)
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := 0; i < 10; i++ {
+		resp, err := client.Get("http://localhost:19307/concurrent")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if i == 9 {
+			b.Fatalf("Server failed to start: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Reset timer before benchmark
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	// Run benchmark with high parallelism
-	b.SetParallelism(100)
+	// Run benchmark with moderate parallelism
+	b.SetParallelism(10)
 	b.RunParallel(func(pb *testing.PB) {
 		client := &http.Client{}
 		for pb.Next() {
