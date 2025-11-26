@@ -294,6 +294,10 @@ func (m *mockDatabaseManager) InitializePluginTables() error {
 	return nil
 }
 
+func (m *mockDatabaseManager) GetQuery(name string) (string, error) {
+	return "", nil
+}
+
 // Mock result and transaction types
 type mockResult struct {
 	rowsAffected int64

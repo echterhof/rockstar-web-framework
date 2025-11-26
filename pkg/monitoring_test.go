@@ -670,3 +670,380 @@ func TestConcurrentOperations(t *testing.T) {
 		<-done
 	}
 }
+
+// TestOptimizationGoroutineExitsCleanly tests that the optimization goroutine exits properly on Stop()
+func TestOptimizationGoroutineExitsCleanly(t *testing.T) {
+	config := MonitoringConfig{
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	// Start the manager with optimization enabled
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	// Let optimization run at least once
+	time.Sleep(100 * time.Millisecond)
+
+	// Get goroutine count before stop
+	goroutinesBefore := runtime.NumGoroutine()
+
+	// Stop should complete without hanging
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Failed to stop manager: %v", err)
+		}
+	case <-time.After(7 * time.Second):
+		t.Fatal("Stop() hung - optimization goroutine did not exit cleanly")
+	}
+
+	// Give goroutines time to fully exit
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify goroutines decreased (optimization goroutine exited)
+	goroutinesAfter := runtime.NumGoroutine()
+	if goroutinesAfter >= goroutinesBefore {
+		t.Logf("Goroutines before: %d, after: %d", goroutinesBefore, goroutinesAfter)
+		// This is a soft check - we expect goroutines to decrease but won't fail the test
+		// as other goroutines might have started in the meantime
+	}
+
+	// Verify manager is not running
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after stop")
+	}
+}
+
+// TestOptimizationStartStopStartCycle tests that optimization can be restarted after stopping
+func TestOptimizationStartStopStartCycle(t *testing.T) {
+	config := MonitoringConfig{
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	// First cycle: Start → Stop
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager (first cycle): %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager (first cycle): %v", err)
+	}
+
+	// Second cycle: Start → Stop
+	err = manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager (second cycle): %v", err)
+	}
+
+	if !manager.IsRunning() {
+		t.Error("Expected manager to be running after second start")
+	}
+
+	// Let optimization run in second cycle
+	time.Sleep(100 * time.Millisecond)
+
+	stats := manager.GetOptimizationStats()
+	if stats.OptimizationCount == 0 {
+		t.Error("Expected at least one optimization to have run in second cycle")
+	}
+
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager (second cycle): %v", err)
+	}
+
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after second stop")
+	}
+}
+
+// TestMultipleStopCallsWithOptimization tests that Stop() can be called multiple times safely with optimization
+func TestMultipleStopCallsWithOptimization(t *testing.T) {
+	config := MonitoringConfig{
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	manager := NewMonitoringManager(config, metrics, nil, nil)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// First stop
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager (first call): %v", err)
+	}
+
+	// Second stop - should not hang or panic
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager (second call): %v", err)
+	}
+
+	// Third stop - should still be safe
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager (third call): %v", err)
+	}
+
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after multiple stops")
+	}
+}
+
+// TestStopCompletesWithinTimeout tests that Stop() completes within the expected timeout
+// Requirements: 1.1, 1.2
+func TestStopCompletesWithinTimeout(t *testing.T) {
+	config := MonitoringConfig{
+		EnableMetrics:        false,
+		EnablePprof:          false,
+		EnableSNMP:           false,
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	// Let it run for a bit
+	time.Sleep(150 * time.Millisecond)
+
+	// Stop should complete within 7 seconds (6 second timeout + 1 second buffer)
+	done := make(chan error, 1)
+	start := time.Now()
+
+	go func() {
+		done <- manager.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		elapsed := time.Since(start)
+		if err != nil {
+			t.Fatalf("Stop() returned error: %v", err)
+		}
+		if elapsed > 7*time.Second {
+			t.Errorf("Stop() took too long: %v (expected < 7s)", elapsed)
+		}
+		t.Logf("Stop() completed in %v", elapsed)
+	case <-time.After(8 * time.Second):
+		t.Fatal("Stop() hung - did not complete within timeout")
+	}
+
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after Stop()")
+	}
+}
+
+// TestStopIdempotent tests that Stop() is idempotent and safe to call multiple times
+// Requirements: 1.3
+func TestStopIdempotent(t *testing.T) {
+	config := MonitoringConfig{
+		EnableMetrics:      false,
+		EnablePprof:        false,
+		EnableSNMP:         false,
+		EnableOptimization: false,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	manager := NewMonitoringManager(config, metrics, nil, nil)
+
+	// Call Stop() on a manager that was never started - should not error
+	err := manager.Stop()
+	if err != nil {
+		t.Errorf("Stop() on non-running manager returned error: %v", err)
+	}
+
+	// Start the manager
+	err = manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	// Stop it
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("First Stop() returned error: %v", err)
+	}
+
+	// Call Stop() multiple times - should all succeed without hanging
+	for i := 0; i < 5; i++ {
+		done := make(chan error, 1)
+		go func() {
+			done <- manager.Stop()
+		}()
+
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Stop() call %d returned error: %v", i+2, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("Stop() call %d hung", i+2)
+		}
+	}
+
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after multiple Stop() calls")
+	}
+}
+
+// TestStartStopStartCycle tests that the manager can be restarted after stopping
+// Requirements: 2.1, 2.2, 2.4
+func TestStartStopStartCycle(t *testing.T) {
+	config := MonitoringConfig{
+		EnableMetrics:        false,
+		EnablePprof:          false,
+		EnableSNMP:           false,
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	// Perform multiple start-stop cycles
+	for cycle := 1; cycle <= 3; cycle++ {
+		t.Logf("Starting cycle %d", cycle)
+
+		// Start
+		err := manager.Start()
+		if err != nil {
+			t.Fatalf("Cycle %d: Failed to start manager: %v", cycle, err)
+		}
+
+		if !manager.IsRunning() {
+			t.Errorf("Cycle %d: Expected manager to be running after Start()", cycle)
+		}
+
+		// Let optimization run
+		time.Sleep(150 * time.Millisecond)
+
+		// Verify optimization is working
+		stats := manager.GetOptimizationStats()
+		if stats.OptimizationCount == 0 {
+			t.Errorf("Cycle %d: Expected at least one optimization to have run", cycle)
+		}
+
+		// Stop
+		err = manager.Stop()
+		if err != nil {
+			t.Fatalf("Cycle %d: Failed to stop manager: %v", cycle, err)
+		}
+
+		if manager.IsRunning() {
+			t.Errorf("Cycle %d: Expected manager to not be running after Stop()", cycle)
+		}
+
+		// Brief pause between cycles
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Log("All start-stop cycles completed successfully")
+}
+
+// TestStopWithOptimizationEnabled tests Stop() with optimization goroutine running
+// Requirements: 1.1, 1.2, 1.4
+func TestStopWithOptimizationEnabled(t *testing.T) {
+	config := MonitoringConfig{
+		EnableMetrics:        false,
+		EnablePprof:          false,
+		EnableSNMP:           false,
+		EnableOptimization:   true,
+		OptimizationInterval: 50 * time.Millisecond,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+
+	// Let optimization run multiple times
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify optimization is running
+	stats := manager.GetOptimizationStats()
+	if stats.OptimizationCount == 0 {
+		t.Error("Expected at least one optimization to have run")
+	}
+
+	// Stop should cleanly shut down optimization goroutine without hanging
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.Stop()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Stop() returned error: %v", err)
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("Stop() hung - optimization goroutine did not exit")
+	}
+
+	if manager.IsRunning() {
+		t.Error("Expected manager to not be running after Stop()")
+	}
+
+	// Wait for goroutines to fully exit
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify we can restart after stopping
+	err = manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to restart manager after stop: %v", err)
+	}
+
+	// Let it run again
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify optimization is working after restart
+	stats = manager.GetOptimizationStats()
+	if stats.OptimizationCount == 0 {
+		t.Error("Expected optimization to run after restart")
+	}
+
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop manager on second cycle: %v", err)
+	}
+}

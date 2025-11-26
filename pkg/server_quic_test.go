@@ -127,16 +127,24 @@ func TestServerQUICListen(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14433"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
 	defer server.Close()
 
 	// Give server time to start
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	if !server.IsRunning() {
 		t.Error("QUIC server should be running")
@@ -175,16 +183,24 @@ func TestServerQUICRequest(t *testing.T) {
 
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14434"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
 	defer server.Close()
 
 	// Give server time to start
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	// Create HTTP/3 client with custom TLS config to accept self-signed cert
 	tlsConfig := &tls.Config{
@@ -198,6 +214,7 @@ func TestServerQUICRequest(t *testing.T) {
 
 	client := &http.Client{
 		Transport: roundTripper,
+		Timeout:   3 * time.Second,
 	}
 
 	// Test GET request
@@ -299,14 +316,23 @@ func TestServerQUICShutdown(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14437"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
+	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
@@ -316,7 +342,7 @@ func TestServerQUICShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = server.Shutdown(ctx)
+	err := server.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("Graceful shutdown failed: %v", err)
 	}
@@ -347,21 +373,30 @@ func TestServerQUICClose(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14438"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
+	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
 	}
 
 	// Close immediately
-	err = server.Close()
+	err := server.Close()
 	if err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
@@ -403,15 +438,23 @@ func TestServerQUICTLSConfig(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14439"
-	err = server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
 	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	if !server.IsRunning() {
 		t.Error("Server should be running")
@@ -436,18 +479,26 @@ func TestServerQUICDoubleStart(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start server first time
+	// Start server first time in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14440"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
 	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
 
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start server: %v", err)
+	default:
+		// Server started successfully
+	}
+
 	// Try to start again
-	err = server.ListenQUIC(addr, certFile, keyFile)
+	err := server.ListenQUIC(addr, certFile, keyFile)
 	if err == nil {
 		t.Error("Expected error when starting already running server")
 	}
@@ -527,20 +578,29 @@ func TestServerQUICShutdownHooks(t *testing.T) {
 		return nil
 	})
 
-	// Start server
+	// Start server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14441"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
+	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	// Shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	err = server.Shutdown(ctx)
+	err := server.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("Shutdown failed: %v", err)
 	}
@@ -572,15 +632,23 @@ func TestServerQUICConcurrentRequests(t *testing.T) {
 	})
 	server.SetRouter(router)
 
-	// Start QUIC server
+	// Start QUIC server in goroutine (ListenQUIC blocks)
 	addr := "127.0.0.1:14442"
-	err := server.ListenQUIC(addr, certFile, keyFile)
-	if err != nil {
-		t.Fatalf("Failed to start QUIC server: %v", err)
-	}
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.ListenQUIC(addr, certFile, keyFile)
+	}()
 	defer server.Close()
 
 	time.Sleep(200 * time.Millisecond)
+
+	// Check if server failed to start
+	select {
+	case err := <-errChan:
+		t.Fatalf("Failed to start QUIC server: %v", err)
+	default:
+		// Server started successfully
+	}
 
 	// Create HTTP/3 client
 	tlsConfig := &tls.Config{
@@ -594,24 +662,33 @@ func TestServerQUICConcurrentRequests(t *testing.T) {
 
 	client := &http.Client{
 		Transport: roundTripper,
+		Timeout:   3 * time.Second,
 	}
 
 	// Make concurrent requests
 	numRequests := 10
 	done := make(chan bool, numRequests)
+	errors := make(chan error, numRequests)
 
 	for i := 0; i < numRequests; i++ {
 		go func(id int) {
+			defer func() {
+				if r := recover(); r != nil {
+					errors <- fmt.Errorf("panic in request %d: %v", id, r)
+					done <- false
+				}
+			}()
+
 			resp, err := client.Get(fmt.Sprintf("https://%s/concurrent", addr))
 			if err != nil {
-				t.Errorf("Request %d failed: %v", id, err)
+				errors <- fmt.Errorf("request %d failed: %v", id, err)
 				done <- false
 				return
 			}
 			defer resp.Body.Close()
 
 			if resp.StatusCode != http.StatusOK {
-				t.Errorf("Request %d: expected status 200, got %d", id, resp.StatusCode)
+				errors <- fmt.Errorf("request %d: expected status 200, got %d", id, resp.StatusCode)
 				done <- false
 				return
 			}
@@ -620,12 +697,24 @@ func TestServerQUICConcurrentRequests(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all requests to complete
+	// Wait for all requests to complete with timeout
 	successCount := 0
+	timeout := time.After(10 * time.Second)
 	for i := 0; i < numRequests; i++ {
-		if <-done {
-			successCount++
+		select {
+		case success := <-done:
+			if success {
+				successCount++
+			}
+		case <-timeout:
+			t.Fatalf("Test timed out waiting for requests to complete (%d/%d completed)", i, numRequests)
 		}
+	}
+
+	// Report any errors
+	close(errors)
+	for err := range errors {
+		t.Error(err)
 	}
 
 	if successCount != numRequests {

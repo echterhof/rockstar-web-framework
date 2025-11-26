@@ -118,6 +118,9 @@ func (m *MockDatabaseManager) Migrate() error                { return nil }
 func (m *MockDatabaseManager) CreateTables() error           { return nil }
 func (m *MockDatabaseManager) DropTables() error             { return nil }
 func (m *MockDatabaseManager) InitializePluginTables() error { return nil }
+func (m *MockDatabaseManager) GetQuery(name string) (string, error) {
+	return "", nil
+}
 
 // Test OAuth2 authentication
 func TestAuthenticateOAuth2_ValidToken(t *testing.T) {

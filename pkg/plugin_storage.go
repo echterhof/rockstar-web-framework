@@ -145,10 +145,13 @@ func (s *pluginStorageImpl) Clear() error {
 
 // loadFromDatabase retrieves a value from the database
 func (s *pluginStorageImpl) loadFromDatabase(key string) (interface{}, error) {
-	query := `SELECT value FROM plugin_storage WHERE plugin_name = ? AND key = ?`
+	query, err := s.database.GetQuery("load_plugin_storage")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load load_plugin_storage query: %w", err)
+	}
 
 	var valueJSON string
-	err := s.database.QueryRow(query, s.pluginName, key).Scan(&valueJSON)
+	err = s.database.QueryRow(query, s.pluginName, key).Scan(&valueJSON)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("key not found: %s", key)
@@ -173,14 +176,10 @@ func (s *pluginStorageImpl) saveToDatabase(key string, value interface{}) error 
 		return fmt.Errorf("failed to serialize value: %w", err)
 	}
 
-	// Use UPSERT pattern (INSERT OR REPLACE for SQLite, ON DUPLICATE KEY UPDATE for MySQL, etc.)
-	query := `
-		INSERT INTO plugin_storage (plugin_name, key, value, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT(plugin_name, key) DO UPDATE SET
-			value = excluded.value,
-			updated_at = excluded.updated_at
-	`
+	query, err := s.database.GetQuery("save_plugin_storage")
+	if err != nil {
+		return fmt.Errorf("failed to load save_plugin_storage query: %w", err)
+	}
 
 	now := time.Now()
 	_, err = s.database.Exec(query, s.pluginName, key, string(valueJSON), now, now)
@@ -193,9 +192,12 @@ func (s *pluginStorageImpl) saveToDatabase(key string, value interface{}) error 
 
 // deleteFromDatabase removes a value from the database
 func (s *pluginStorageImpl) deleteFromDatabase(key string) error {
-	query := `DELETE FROM plugin_storage WHERE plugin_name = ? AND key = ?`
+	query, err := s.database.GetQuery("delete_plugin_storage")
+	if err != nil {
+		return fmt.Errorf("failed to load delete_plugin_storage query: %w", err)
+	}
 
-	_, err := s.database.Exec(query, s.pluginName, key)
+	_, err = s.database.Exec(query, s.pluginName, key)
 	if err != nil {
 		return fmt.Errorf("failed to delete from database: %w", err)
 	}
@@ -205,7 +207,10 @@ func (s *pluginStorageImpl) deleteFromDatabase(key string) error {
 
 // listFromDatabase retrieves all keys for this plugin from the database
 func (s *pluginStorageImpl) listFromDatabase() ([]string, error) {
-	query := `SELECT key FROM plugin_storage WHERE plugin_name = ?`
+	query, err := s.database.GetQuery("list_plugin_storage_keys")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load list_plugin_storage_keys query: %w", err)
+	}
 
 	rows, err := s.database.Query(query, s.pluginName)
 	if err != nil {
@@ -231,9 +236,12 @@ func (s *pluginStorageImpl) listFromDatabase() ([]string, error) {
 
 // clearDatabase removes all entries for this plugin from the database
 func (s *pluginStorageImpl) clearDatabase() error {
-	query := `DELETE FROM plugin_storage WHERE plugin_name = ?`
+	query, err := s.database.GetQuery("clear_plugin_storage")
+	if err != nil {
+		return fmt.Errorf("failed to load clear_plugin_storage query: %w", err)
+	}
 
-	_, err := s.database.Exec(query, s.pluginName)
+	_, err = s.database.Exec(query, s.pluginName)
 	if err != nil {
 		return fmt.Errorf("failed to clear database: %w", err)
 	}

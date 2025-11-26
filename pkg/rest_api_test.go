@@ -486,6 +486,9 @@ func (m *mockDB) Migrate() error                { return nil }
 func (m *mockDB) CreateTables() error           { return nil }
 func (m *mockDB) DropTables() error             { return nil }
 func (m *mockDB) InitializePluginTables() error { return nil }
+func (m *mockDB) GetQuery(name string) (string, error) {
+	return "", nil
+}
 
 // TestRESTAPIManager tests the REST API manager
 func TestRESTAPIManager(t *testing.T) {

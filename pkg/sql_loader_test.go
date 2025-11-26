@@ -285,13 +285,11 @@ func TestProperty_NoEmbeddedSQLInGoSource(t *testing.T) {
 	}
 
 	// Files that are allowed to contain SQL (test files and sql_loader itself)
-	// Note: plugin_storage.go is temporarily allowed as it will be migrated in a future task
 	// Note: database_impl.go contains DropTables() which uses simple DROP TABLE statements
 	//       for cleanup/testing purposes - this is acceptable as it's standard SQL
 	allowedFiles := map[string]bool{
 		"sql_loader.go":      true,
 		"sql_loader_test.go": true,
-		"plugin_storage.go":  true, // TODO: Migrate plugin storage SQL to external files
 		"database_impl.go":   true, // Contains DropTables() utility method with simple DROP TABLE SQL
 	}
 

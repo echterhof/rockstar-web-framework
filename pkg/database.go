@@ -55,6 +55,9 @@ type DatabaseManager interface {
 
 	// Plugin system support
 	InitializePluginTables() error
+
+	// SQL loader support
+	GetQuery(name string) (string, error)
 }
 
 // Transaction represents a database transaction

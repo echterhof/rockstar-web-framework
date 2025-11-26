@@ -124,6 +124,9 @@ func (m *mockGRPCDB) Migrate() error                { return nil }
 func (m *mockGRPCDB) CreateTables() error           { return nil }
 func (m *mockGRPCDB) DropTables() error             { return nil }
 func (m *mockGRPCDB) InitializePluginTables() error { return nil }
+func (m *mockGRPCDB) GetQuery(name string) (string, error) {
+	return "", nil
+}
 
 // TestNewGRPCManager tests creating a new gRPC manager
 // Requirements: 2.3

@@ -6,15 +6,25 @@ import (
 )
 
 func TestSessionStorage(t *testing.T) {
-	// Create a mock database manager
+	// Create a database manager with SQLite in-memory
 	db := NewDatabaseManager()
 
-	// Connect to mock database
-	err := db.Connect(DatabaseConfig{Driver: "mock"})
+	// Connect to SQLite in-memory database
+	err := db.Connect(DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: ":memory:",
+		Options:  map[string]string{"sql_dir": "../sql"},
+	})
 	if err != nil {
-		t.Fatalf("Failed to connect to mock database: %v", err)
+		t.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
+
+	// Create tables
+	err = db.CreateTables()
+	if err != nil {
+		t.Fatalf("Failed to create tables: %v", err)
+	}
 
 	// Create a test session
 	session := &Session{
@@ -80,8 +90,21 @@ func TestSessionStorage(t *testing.T) {
 
 func TestSessionExpiration(t *testing.T) {
 	db := NewDatabaseManager()
-	db.Connect(DatabaseConfig{Driver: "mock"})
+	err := db.Connect(DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: ":memory:",
+		Options:  map[string]string{"sql_dir": "../sql"},
+	})
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
 	defer db.Close()
+
+	// Create tables
+	err = db.CreateTables()
+	if err != nil {
+		t.Fatalf("Failed to create tables: %v", err)
+	}
 
 	// Create an expired session
 	expiredSession := &Session{
@@ -95,7 +118,7 @@ func TestSessionExpiration(t *testing.T) {
 	}
 
 	// Save expired session
-	err := db.SaveSession(expiredSession)
+	err = db.SaveSession(expiredSession)
 	if err != nil {
 		t.Fatalf("Failed to save expired session: %v", err)
 	}
@@ -109,8 +132,21 @@ func TestSessionExpiration(t *testing.T) {
 
 func TestCleanupExpiredSessions(t *testing.T) {
 	db := NewDatabaseManager()
-	db.Connect(DatabaseConfig{Driver: "mock"})
+	err := db.Connect(DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: ":memory:",
+		Options:  map[string]string{"sql_dir": "../sql"},
+	})
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
 	defer db.Close()
+
+	// Create tables
+	err = db.CreateTables()
+	if err != nil {
+		t.Fatalf("Failed to create tables: %v", err)
+	}
 
 	// Create multiple sessions with different expiration times
 	sessions := []*Session{
@@ -145,7 +181,7 @@ func TestCleanupExpiredSessions(t *testing.T) {
 	}
 
 	// Run cleanup
-	err := db.CleanupExpiredSessions()
+	err = db.CleanupExpiredSessions()
 	if err != nil {
 		t.Fatalf("Failed to cleanup expired sessions: %v", err)
 	}
@@ -170,8 +206,21 @@ func TestCleanupExpiredSessions(t *testing.T) {
 
 func TestMultiTenantSessionIsolation(t *testing.T) {
 	db := NewDatabaseManager()
-	db.Connect(DatabaseConfig{Driver: "mock"})
+	err := db.Connect(DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: ":memory:",
+		Options:  map[string]string{"sql_dir": "../sql"},
+	})
+	if err != nil {
+		t.Fatalf("Failed to connect to database: %v", err)
+	}
 	defer db.Close()
+
+	// Create tables
+	err = db.CreateTables()
+	if err != nil {
+		t.Fatalf("Failed to create tables: %v", err)
+	}
 
 	// Create sessions for different tenants
 	tenant1Session := &Session{

@@ -177,6 +177,9 @@ func (m *MockDatabase) InitializePluginTables() error {
 	m.initCalled = true
 	return nil
 }
+func (m *MockDatabase) GetQuery(name string) (string, error) {
+	return "", nil
+}
 
 type MockCache struct{}
 

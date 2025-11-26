@@ -79,23 +79,26 @@ func (dm *databaseManager) Connect(config DatabaseConfig) error {
 	dm.config = config
 
 	// Initialize SQL loader
-	sqlDir := "./sql"
-	if config.Options != nil {
-		if customDir, ok := config.Options["sql_dir"]; ok {
-			sqlDir = customDir
+	// Skip SQL loader for mock driver (used in tests)
+	if config.Driver != "mock" {
+		sqlDir := "./sql"
+		if config.Options != nil {
+			if customDir, ok := config.Options["sql_dir"]; ok {
+				sqlDir = customDir
+			}
 		}
-	}
 
-	loader, err := NewSQLLoader(config.Driver, sqlDir)
-	if err != nil {
-		return fmt.Errorf("failed to create SQL loader: %w", err)
-	}
+		loader, err := NewSQLLoader(config.Driver, sqlDir)
+		if err != nil {
+			return fmt.Errorf("failed to create SQL loader: %w", err)
+		}
 
-	if err := loader.LoadAll(); err != nil {
-		return fmt.Errorf("failed to load SQL files: %w", err)
-	}
+		if err := loader.LoadAll(); err != nil {
+			return fmt.Errorf("failed to load SQL files: %w", err)
+		}
 
-	dm.sqlLoader = loader
+		dm.sqlLoader = loader
+	}
 
 	return nil
 }
@@ -111,6 +114,9 @@ func (dm *databaseManager) buildDSN(config DatabaseConfig) (string, error) {
 		return dm.buildMSSQLDSN(config), nil
 	case "sqlite3", "sqlite":
 		return dm.buildSQLiteDSN(config), nil
+	case "mock":
+		// Mock driver for testing - return empty DSN
+		return ":memory:", nil
 	default:
 		return "", fmt.Errorf("unsupported database driver: %s", config.Driver)
 	}
@@ -759,4 +765,12 @@ func (dm *databaseManager) InitializePluginTables() error {
 	}
 
 	return nil
+}
+
+// GetQuery retrieves a SQL query by name from the SQL loader
+func (dm *databaseManager) GetQuery(name string) (string, error) {
+	if dm.sqlLoader == nil {
+		return "", fmt.Errorf("SQL loader not initialized")
+	}
+	return dm.sqlLoader.GetQuery(name)
 }

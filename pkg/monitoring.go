@@ -152,6 +152,9 @@ func (m *monitoringManagerImpl) Start() error {
 		return fmt.Errorf("monitoring manager already running")
 	}
 
+	// Create new stop channel for this lifecycle
+	m.stopChan = make(chan struct{})
+
 	// Start metrics endpoint if enabled
 	if m.config.EnableMetrics {
 		if err := m.enableMetricsEndpointLocked(m.config.MetricsPath); err != nil {
@@ -187,14 +190,44 @@ func (m *monitoringManagerImpl) Start() error {
 // Stop stops the monitoring manager
 func (m *monitoringManagerImpl) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if !m.running {
+		m.mu.Unlock()
 		return nil
 	}
 
-	// Signal stop
+	// Signal stop to all goroutines
 	close(m.stopChan)
+
+	// Stop optimization ticker before releasing lock
+	if m.optimizationTicker != nil {
+		m.optimizationTicker.Stop()
+		m.optimizationTicker = nil
+	}
+
+	// Release lock before waiting to prevent deadlock
+	m.mu.Unlock()
+
+	// Wait for goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished successfully
+	case <-time.After(6 * time.Second):
+		// Timeout - log warning but continue with cleanup
+		if m.logger != nil {
+			m.logger.Error("timeout waiting for goroutines to finish during Stop()")
+		}
+	}
+
+	// Reacquire lock for cleanup
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	// Stop metrics server
 	if m.metricsServer != nil {
@@ -217,15 +250,6 @@ func (m *monitoringManagerImpl) Stop() error {
 		m.snmpServer.Stop()
 		m.snmpServer = nil
 	}
-
-	// Stop optimization ticker
-	if m.optimizationTicker != nil {
-		m.optimizationTicker.Stop()
-		m.optimizationTicker = nil
-	}
-
-	// Wait for goroutines
-	m.wg.Wait()
 
 	m.running = false
 	m.metricsEnabled = false
@@ -575,13 +599,14 @@ func (m *monitoringManagerImpl) enableOptimizationLocked() error {
 	}
 
 	m.optimizationTicker = time.NewTicker(interval)
+	ticker := m.optimizationTicker // Capture ticker in local variable
 
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		for {
 			select {
-			case <-m.optimizationTicker.C:
+			case <-ticker.C:
 				if err := m.OptimizeNow(); err != nil {
 					if m.logger != nil {
 						m.logger.Error("optimization error", "error", err)

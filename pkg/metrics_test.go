@@ -91,6 +91,9 @@ func (m *mockDatabaseForMetrics) Migrate() error                { return nil }
 func (m *mockDatabaseForMetrics) CreateTables() error           { return nil }
 func (m *mockDatabaseForMetrics) DropTables() error             { return nil }
 func (m *mockDatabaseForMetrics) InitializePluginTables() error { return nil }
+func (m *mockDatabaseForMetrics) GetQuery(name string) (string, error) {
+	return "", nil
+}
 
 // TestNewMetricsCollector tests creating a new metrics collector
 func TestNewMetricsCollector(t *testing.T) {
