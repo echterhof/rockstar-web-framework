@@ -147,14 +147,16 @@ func (l *pluginLoaderImpl) ResolvePath(path string) (string, error) {
 		return "", fmt.Errorf("plugin path cannot be empty")
 	}
 
-	// If the path is already absolute, return it
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
+	// Use path validator to prevent directory traversal attacks
+	validator := NewPathValidator(l.baseDir)
+
+	// Validate and resolve the path
+	resolvedPath, err := validator.ResolvePath(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid plugin path: %w", err)
 	}
 
-	// Otherwise, resolve it relative to the base directory
-	absPath := filepath.Join(l.baseDir, path)
-	return filepath.Clean(absPath), nil
+	return resolvedPath, nil
 }
 
 // processPlugin is a Plugin implementation that communicates with a separate process

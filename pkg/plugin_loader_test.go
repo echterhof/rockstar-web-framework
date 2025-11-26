@@ -26,7 +26,7 @@ func TestProperty_PathResolution(t *testing.T) {
 	logger := &testLogger{}
 	loader := NewPluginLoader(tempDir, logger)
 
-	properties.Property("absolute paths are resolved correctly",
+	properties.Property("absolute paths within base directory are resolved correctly",
 		prop.ForAll(
 			func(pathComponents []string) bool {
 				// Skip empty path components
@@ -51,13 +51,9 @@ func TestProperty_PathResolution(t *testing.T) {
 					return true
 				}
 
-				// Build an absolute path
-				var absPath string
-				if runtime.GOOS == "windows" {
-					absPath = filepath.Join("C:\\", filepath.Join(validComponents...))
-				} else {
-					absPath = filepath.Join("/", filepath.Join(validComponents...))
-				}
+				// Build an absolute path within the base directory
+				relPath := filepath.Join(validComponents...)
+				absPath := filepath.Join(tempDir, relPath)
 
 				// Resolve the path
 				resolved, err := loader.ResolvePath(absPath)

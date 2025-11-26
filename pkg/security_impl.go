@@ -38,6 +38,24 @@ type SecurityConfig struct {
 	EnableXSSProtect bool          // Enable XSS protection
 	EnableCSRF       bool          // Enable CSRF protection
 	AllowedOrigins   []string      // Allowed origins for CORS
+
+	// HSTS (HTTP Strict Transport Security)
+	EnableHSTS            bool // Enable HSTS header (default: true)
+	HSTSMaxAge            int  // HSTS max-age in seconds (default: 31536000 = 1 year)
+	HSTSIncludeSubdomains bool // Include subdomains in HSTS (default: true)
+	HSTSPreload           bool // Enable HSTS preload (default: false)
+
+	// Production mode
+	ProductionMode bool // Hide sensitive error details in production (default: false)
+
+	// Input length limits
+	MaxHeaderSize     int // Maximum size of a single header value (default: 8KB)
+	MaxURLLength      int // Maximum URL length (default: 2048)
+	MaxFormFieldSize  int // Maximum size of a single form field (default: 1MB)
+	MaxFormFields     int // Maximum number of form fields (default: 1000)
+	MaxFileNameLength int // Maximum filename length (default: 255)
+	MaxCookieSize     int // Maximum cookie size (default: 4KB)
+	MaxQueryParams    int // Maximum number of query parameters (default: 100)
 }
 
 // NewSecurityManager creates a new security manager instance
@@ -80,7 +98,25 @@ func DefaultSecurityConfig() SecurityConfig {
 		XFrameOptions:    "SAMEORIGIN",
 		EnableXSSProtect: true,
 		EnableCSRF:       true,
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   []string{}, // SECURITY: No wildcard by default - must be explicitly configured
+
+		// HSTS enabled by default for security
+		EnableHSTS:            true,
+		HSTSMaxAge:            31536000, // 1 year
+		HSTSIncludeSubdomains: true,
+		HSTSPreload:           false, // Requires manual opt-in
+
+		// Production mode disabled by default (enable in production)
+		ProductionMode: false,
+
+		// Input length limits (prevent memory exhaustion)
+		MaxHeaderSize:     8 * 1024,        // 8 KB per header
+		MaxURLLength:      2048,            // 2 KB URL length
+		MaxFormFieldSize:  1 * 1024 * 1024, // 1 MB per form field
+		MaxFormFields:     1000,            // Max 1000 form fields
+		MaxFileNameLength: 255,             // Max 255 chars for filename
+		MaxCookieSize:     4096,            // 4 KB per cookie
+		MaxQueryParams:    100,             // Max 100 query parameters
 	}
 }
 
@@ -100,6 +136,11 @@ func (s *securityManagerImpl) ValidateRequest(ctx Context) error {
 
 	// Validate bogus data
 	if err := s.ValidateBogusData(ctx); err != nil {
+		return err
+	}
+
+	// Validate input lengths
+	if err := s.ValidateInputLengths(ctx); err != nil {
 		return err
 	}
 
@@ -229,6 +270,111 @@ func (s *securityManagerImpl) ValidateBogusData(ctx Context) error {
 	return nil
 }
 
+// ValidateInputLengths validates that all input lengths are within acceptable limits
+func (s *securityManagerImpl) ValidateInputLengths(ctx Context) error {
+	req := ctx.Request()
+	if req == nil {
+		return nil
+	}
+
+	// Validate URL length
+	if s.config.MaxURLLength > 0 && len(req.RequestURI) > s.config.MaxURLLength {
+		return &FrameworkError{
+			Code:       ErrCodeValidationFailed,
+			Message:    fmt.Sprintf("URL length %d exceeds maximum %d", len(req.RequestURI), s.config.MaxURLLength),
+			StatusCode: http.StatusRequestURITooLong,
+			I18nKey:    "error.validation.url_too_long",
+			Details:    map[string]interface{}{"length": len(req.RequestURI), "max": s.config.MaxURLLength},
+		}
+	}
+
+	// Validate header sizes
+	if s.config.MaxHeaderSize > 0 {
+		for key, values := range req.Header {
+			for _, value := range values {
+				if len(value) > s.config.MaxHeaderSize {
+					return &FrameworkError{
+						Code:       ErrCodeValidationFailed,
+						Message:    fmt.Sprintf("header %s size %d exceeds maximum %d", key, len(value), s.config.MaxHeaderSize),
+						StatusCode: http.StatusRequestHeaderFieldsTooLarge,
+						I18nKey:    "error.validation.header_too_large",
+						Details:    map[string]interface{}{"header": key, "length": len(value), "max": s.config.MaxHeaderSize},
+					}
+				}
+			}
+		}
+	}
+
+	// Validate query parameter count
+	if s.config.MaxQueryParams > 0 && len(req.Query) > s.config.MaxQueryParams {
+		return &FrameworkError{
+			Code:       ErrCodeValidationFailed,
+			Message:    fmt.Sprintf("query parameter count %d exceeds maximum %d", len(req.Query), s.config.MaxQueryParams),
+			StatusCode: http.StatusBadRequest,
+			I18nKey:    "error.validation.too_many_query_params",
+			Details:    map[string]interface{}{"count": len(req.Query), "max": s.config.MaxQueryParams},
+		}
+	}
+
+	// Validate query parameter sizes
+	if s.config.MaxFormFieldSize > 0 {
+		for key, value := range req.Query {
+			if len(value) > s.config.MaxFormFieldSize {
+				return &FrameworkError{
+					Code:       ErrCodeValidationFailed,
+					Message:    fmt.Sprintf("query parameter %s size %d exceeds maximum %d", key, len(value), s.config.MaxFormFieldSize),
+					StatusCode: http.StatusBadRequest,
+					I18nKey:    "error.validation.query_param_too_large",
+					Details:    map[string]interface{}{"param": key, "length": len(value), "max": s.config.MaxFormFieldSize},
+				}
+			}
+		}
+	}
+
+	// Validate form field count
+	if req.Form != nil && s.config.MaxFormFields > 0 && len(req.Form) > s.config.MaxFormFields {
+		return &FrameworkError{
+			Code:       ErrCodeValidationFailed,
+			Message:    fmt.Sprintf("form field count %d exceeds maximum %d", len(req.Form), s.config.MaxFormFields),
+			StatusCode: http.StatusBadRequest,
+			I18nKey:    "error.validation.too_many_form_fields",
+			Details:    map[string]interface{}{"count": len(req.Form), "max": s.config.MaxFormFields},
+		}
+	}
+
+	// Validate form field sizes
+	if req.Form != nil && s.config.MaxFormFieldSize > 0 {
+		for key, value := range req.Form {
+			if len(value) > s.config.MaxFormFieldSize {
+				return &FrameworkError{
+					Code:       ErrCodeValidationFailed,
+					Message:    fmt.Sprintf("form field %s size %d exceeds maximum %d", key, len(value), s.config.MaxFormFieldSize),
+					StatusCode: http.StatusBadRequest,
+					I18nKey:    "error.validation.form_field_too_large",
+					Details:    map[string]interface{}{"field": key, "length": len(value), "max": s.config.MaxFormFieldSize},
+				}
+			}
+		}
+	}
+
+	// Validate file names
+	if req.Files != nil && s.config.MaxFileNameLength > 0 {
+		for field, file := range req.Files {
+			if len(file.Filename) > s.config.MaxFileNameLength {
+				return &FrameworkError{
+					Code:       ErrCodeValidationFailed,
+					Message:    fmt.Sprintf("filename for field %s length %d exceeds maximum %d", field, len(file.Filename), s.config.MaxFileNameLength),
+					StatusCode: http.StatusBadRequest,
+					I18nKey:    "error.validation.filename_too_long",
+					Details:    map[string]interface{}{"field": field, "length": len(file.Filename), "max": s.config.MaxFileNameLength},
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 // Form and file validation methods
 
 // ValidateFormData validates form data against provided rules
@@ -280,16 +426,22 @@ func (s *securityManagerImpl) ValidateFormData(ctx Context, rules ValidationRule
 		}
 	}
 
-	// Validate patterns
+	// Validate patterns with timeout protection
+	regexValidator := DefaultRegexValidator()
 	for field, pattern := range rules.Patterns {
 		value, exists := req.Form[field]
 		if !exists {
 			continue
 		}
 
-		matched, err := regexp.MatchString(pattern, value)
-		if err != nil {
+		// Validate pattern safety first
+		if err := ValidatePattern(pattern); err != nil {
 			return fmt.Errorf("invalid regex pattern for field %s: %w", field, err)
+		}
+
+		matched, err := regexValidator.MatchString(pattern, value)
+		if err != nil {
+			return fmt.Errorf("regex matching failed for field %s: %w", field, err)
 		}
 		if !matched {
 			return NewValidationError(
@@ -334,9 +486,27 @@ func (s *securityManagerImpl) validateFieldType(value, expectedType, field strin
 			return NewValidationError(fmt.Sprintf("field %s is not a valid float", field), field)
 		}
 	case "email":
-		emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+		// RFC 5322 compliant email regex (simplified but more strict)
+		// Allows: local-part@domain.tld
+		// Local part: alphanumeric, dots, hyphens, underscores (no consecutive dots)
+		// Domain: alphanumeric, hyphens (no consecutive hyphens)
+		emailRegex := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$`)
 		if !emailRegex.MatchString(value) {
 			return NewValidationError(fmt.Sprintf("field %s is not a valid email", field), field)
+		}
+		// Additional validation: check length limits per RFC 5321
+		parts := strings.Split(value, "@")
+		if len(parts) != 2 {
+			return NewValidationError(fmt.Sprintf("field %s is not a valid email", field), field)
+		}
+		if len(parts[0]) > 64 { // Local part max 64 chars
+			return NewValidationError(fmt.Sprintf("field %s email local part exceeds 64 characters", field), field)
+		}
+		if len(parts[1]) > 255 { // Domain max 255 chars
+			return NewValidationError(fmt.Sprintf("field %s email domain exceeds 255 characters", field), field)
+		}
+		if len(value) > 320 { // Total max 320 chars (64 + 1 + 255)
+			return NewValidationError(fmt.Sprintf("field %s email exceeds 320 characters", field), field)
 		}
 	case "url":
 		urlRegex := regexp.MustCompile(`^https?://[^\s]+$`)
@@ -489,6 +659,18 @@ func (s *securityManagerImpl) SetSecurityHeaders(ctx Context) error {
 		}
 	}
 
+	// Enable HSTS (HTTP Strict Transport Security)
+	if s.config.EnableHSTS {
+		hstsValue := fmt.Sprintf("max-age=%d", s.config.HSTSMaxAge)
+		if s.config.HSTSIncludeSubdomains {
+			hstsValue += "; includeSubDomains"
+		}
+		if s.config.HSTSPreload {
+			hstsValue += "; preload"
+		}
+		ctx.SetHeader("Strict-Transport-Security", hstsValue)
+	}
+
 	// Set other security headers
 	ctx.SetHeader("X-Content-Type-Options", "nosniff")
 	ctx.SetHeader("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -516,6 +698,10 @@ func (s *securityManagerImpl) EnableCORS(ctx Context, config CORSConfig) error {
 	// Check if origin is allowed
 	allowedOrigin := ""
 	if contains(config.AllowOrigins, "*") {
+		// WARNING: Wildcard origin is insecure in production
+		if ctx.Logger() != nil {
+			ctx.Logger().Warn("SECURITY WARNING: CORS wildcard origin (*) is enabled. This is insecure for production use!")
+		}
 		allowedOrigin = "*"
 	} else if contains(config.AllowOrigins, origin) {
 		allowedOrigin = origin
@@ -664,11 +850,17 @@ func (s *securityManagerImpl) ValidateInput(input string, rules InputValidationR
 		}
 	}
 
-	// Check pattern
+	// Check pattern with timeout protection
 	if rules.Pattern != "" {
-		matched, err := regexp.MatchString(rules.Pattern, input)
-		if err != nil {
+		// Validate pattern safety first
+		if err := ValidatePattern(rules.Pattern); err != nil {
 			return fmt.Errorf("invalid regex pattern: %w", err)
+		}
+
+		regexValidator := DefaultRegexValidator()
+		matched, err := regexValidator.MatchString(rules.Pattern, input)
+		if err != nil {
+			return fmt.Errorf("regex matching failed: %w", err)
 		}
 		if !matched {
 			return &FrameworkError{
@@ -980,25 +1172,32 @@ func containsHTML(input string) bool {
 	return htmlRegex.MatchString(input)
 }
 
-// containsSQLInjection checks for common SQL injection patterns
+// containsSQLInjection checks if input contains common SQL injection patterns
 func containsSQLInjection(input string) bool {
-	lowerInput := strings.ToLower(input)
+	// Convert to lowercase for case-insensitive matching
+	lower := strings.ToLower(input)
 
 	// Common SQL injection patterns
-	patterns := []string{
-		"' or '1'='1",
+	sqlPatterns := []string{
+		"' or '",
+		"\" or \"",
 		"' or 1=1",
-		"'; drop table",
-		"'; delete from",
-		"union select",
+		"\" or 1=1",
+		"or 1=1",
+		"' or ''='",
+		"\" or \"\"=\"",
+		"; drop ",
+		"; delete ",
+		"; update ",
+		"; insert ",
 		"exec(",
 		"execute(",
-		"<script",
-		"javascript:",
+		"union select",
+		"union all select",
 	}
 
-	for _, pattern := range patterns {
-		if strings.Contains(lowerInput, pattern) {
+	for _, pattern := range sqlPatterns {
+		if strings.Contains(lower, pattern) {
 			return true
 		}
 	}
@@ -1014,4 +1213,36 @@ func (s *securityManagerImpl) CleanupExpiredCSRFTokens() {
 			delete(s.csrfTokens, token)
 		}
 	}
+}
+
+// SafeError returns a safe error message for production mode
+// In production, sensitive details are hidden and only generic messages are shown
+func (s *securityManagerImpl) SafeError(err error) error {
+	if !s.config.ProductionMode {
+		return err
+	}
+
+	// If it's a FrameworkError, return a sanitized version
+	if fwErr, ok := err.(*FrameworkError); ok {
+		return &FrameworkError{
+			Code:       fwErr.Code,
+			Message:    fwErr.I18nKey, // Use i18n key instead of detailed message
+			StatusCode: fwErr.StatusCode,
+			I18nKey:    fwErr.I18nKey,
+			// Omit Details, Cause, UserID, TenantID in production
+		}
+	}
+
+	// For other errors, return a generic message
+	return &FrameworkError{
+		Code:       "INTERNAL_ERROR",
+		Message:    "An error occurred",
+		StatusCode: 500,
+		I18nKey:    "error.internal",
+	}
+}
+
+// IsProductionMode returns whether production mode is enabled
+func (s *securityManagerImpl) IsProductionMode() bool {
+	return s.config.ProductionMode
 }

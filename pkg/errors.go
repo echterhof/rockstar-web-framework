@@ -99,6 +99,8 @@ const (
 	ErrCodeCSRFTokenInvalid     = "CSRF_TOKEN_INVALID"
 	ErrCodeXSSDetected          = "XSS_DETECTED"
 	ErrCodeSQLInjectionDetected = "SQL_INJECTION_DETECTED"
+	ErrCodePathTraversal        = "PATH_TRAVERSAL"
+	ErrCodeRegexTimeout         = "REGEX_TIMEOUT"
 
 	// Database errors
 	ErrCodeDatabaseConnection   = "DATABASE_CONNECTION"

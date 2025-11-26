@@ -30,6 +30,11 @@ func newMockDatabaseManager() *mockDatabaseManager {
 	}
 }
 
+// NewMockDatabaseManager creates a new mock database manager for testing (exported)
+func NewMockDatabaseManager() DatabaseManager {
+	return newMockDatabaseManager()
+}
+
 // Mock implementation of DatabaseManager interface for testing
 
 func (m *mockDatabaseManager) Connect(config DatabaseConfig) error {

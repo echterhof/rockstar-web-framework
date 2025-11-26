@@ -11,6 +11,7 @@ type Context interface {
 	Request() *Request
 	Response() ResponseWriter
 	Params() map[string]string
+	Param(name string) string
 	Query() map[string]string
 	Headers() map[string]string
 	Body() []byte

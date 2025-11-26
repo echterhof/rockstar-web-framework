@@ -48,6 +48,12 @@ type ServerConfig struct {
 	// Default: 30 seconds
 	WriteTimeout time.Duration
 
+	// HSTS (HTTP Strict Transport Security) configuration
+	EnableHSTS            bool          // Enable HSTS header
+	HSTSMaxAge            time.Duration // HSTS max-age in seconds (default: 1 year)
+	HSTSIncludeSubdomains bool          // Include subdomains in HSTS
+	HSTSPreload           bool          // Enable HSTS preload
+
 	// IdleTimeout is the maximum amount of time to wait for the next request when keep-alives are enabled.
 	// Default: 120 seconds
 	IdleTimeout time.Duration

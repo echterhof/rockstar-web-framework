@@ -48,6 +48,11 @@ func (c *contextImpl) Params() map[string]string {
 	return c.params
 }
 
+// Param returns a route parameter by name
+func (c *contextImpl) Param(name string) string {
+	return c.GetParam(name)
+}
+
 // Query returns query parameters
 func (c *contextImpl) Query() map[string]string {
 	// Merge URL query params if not already done

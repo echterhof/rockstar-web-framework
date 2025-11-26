@@ -1,9 +1,13 @@
+//go:build ignore
+
 package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
@@ -11,6 +15,37 @@ import (
 )
 
 func main() {
+	// ============================================================================
+	// Security: Load Encryption Key from Environment
+	// ============================================================================
+	// IMPORTANT: Never hardcode encryption keys in your code!
+	// Generate a secure key using: go run examples/generate_keys.go
+	// Then set it as an environment variable: export SESSION_ENCRYPTION_KEY=your_key_here
+
+	encryptionKeyHex := os.Getenv("SESSION_ENCRYPTION_KEY")
+	if encryptionKeyHex == "" {
+		log.Println("WARNING: SESSION_ENCRYPTION_KEY not set, generating temporary key")
+		log.Println("This is INSECURE for production! Generate a key with: go run examples/generate_keys.go")
+
+		// Generate temporary key for development only
+		tempKey, err := pkg.GenerateEncryptionKeyHex(32)
+		if err != nil {
+			log.Fatalf("Failed to generate temporary key: %v", err)
+		}
+		encryptionKeyHex = tempKey
+		log.Printf("Temporary key (save this): %s", tempKey)
+	}
+
+	// Decode hex key to bytes
+	encryptionKey, err := hex.DecodeString(encryptionKeyHex)
+	if err != nil {
+		log.Fatalf("Invalid encryption key format (must be hex): %v", err)
+	}
+
+	if len(encryptionKey) != 32 {
+		log.Fatalf("Encryption key must be 32 bytes for AES-256, got %d bytes", len(encryptionKey))
+	}
+
 	// ============================================================================
 	// Configuration Setup
 	// ============================================================================
@@ -47,10 +82,10 @@ func main() {
 			// MaxSize defaults to 0 (unlimited)
 			// DefaultTTL defaults to 0 (no expiration)
 		},
-		// Session configuration - only encryption key is required
+		// Session configuration - encryption key loaded from environment
 		SessionConfig: pkg.SessionConfig{
-			EncryptionKey: []byte("12345678901234567890123456789012"), // 32 bytes for AES-256 (required)
-			CookieSecure:  false,                                      // Set to true in production with HTTPS
+			EncryptionKey: encryptionKey, // 32 bytes for AES-256 (loaded from env)
+			CookieSecure:  false,         // Set to true in production with HTTPS
 			// CookieName defaults to "rockstar_session"
 			// CookiePath defaults to "/"
 			// SessionLifetime defaults to 24 hours

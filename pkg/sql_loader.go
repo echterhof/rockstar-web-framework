@@ -66,8 +66,12 @@ func NewSQLLoader(driver string, sqlDir string) (SQLLoader, error) {
 
 // LoadAll loads all SQL files from the driver-specific directory
 func (sl *sqlLoader) LoadAll() error {
-	// Construct the path to the driver-specific SQL directory
-	driverDir := filepath.Join(sl.sqlDir, sl.driver)
+	// Validate driver name to prevent path traversal
+	validator := NewPathValidator(sl.sqlDir)
+	driverDir, err := validator.ResolvePath(sl.driver)
+	if err != nil {
+		return fmt.Errorf("invalid driver name: %w", err)
+	}
 
 	// Check if directory exists
 	if _, err := os.Stat(driverDir); os.IsNotExist(err) {
@@ -91,8 +95,13 @@ func (sl *sqlLoader) LoadAll() error {
 			continue
 		}
 
+		// Validate filename to prevent path traversal
+		filePath, err := validator.ResolvePath(filepath.Join(sl.driver, entry.Name()))
+		if err != nil {
+			return fmt.Errorf("invalid SQL filename: %w", err)
+		}
+
 		// Read file content
-		filePath := filepath.Join(driverDir, entry.Name())
 		content, err := os.ReadFile(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to read SQL file %s: %w", filePath, err)

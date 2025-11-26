@@ -507,6 +507,7 @@ type mockMiddlewareContext struct{}
 func (m *mockMiddlewareContext) Request() *Request                           { return nil }
 func (m *mockMiddlewareContext) Response() ResponseWriter                    { return nil }
 func (m *mockMiddlewareContext) Params() map[string]string                   { return nil }
+func (m *mockMiddlewareContext) Param(name string) string                    { return "" }
 func (m *mockMiddlewareContext) Query() map[string]string                    { return nil }
 func (m *mockMiddlewareContext) Headers() map[string]string                  { return nil }
 func (m *mockMiddlewareContext) Body() []byte                                { return nil }

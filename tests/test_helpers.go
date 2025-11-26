@@ -34,6 +34,7 @@ func newMockContext() *mockContext {
 func (m *mockContext) Request() *pkg.Request                         { return m.request }
 func (m *mockContext) Response() pkg.ResponseWriter                  { return nil }
 func (m *mockContext) Params() map[string]string                     { return m.params }
+func (m *mockContext) Param(name string) string                      { return m.params[name] }
 func (m *mockContext) Query() map[string]string                      { return m.query }
 func (m *mockContext) Headers() map[string]string                    { return m.headers }
 func (m *mockContext) Body() []byte                                  { return m.body }

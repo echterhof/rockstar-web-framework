@@ -498,6 +498,23 @@ func (f *Framework) PluginManager() PluginManager {
 	return f.pluginManager
 }
 
+// LoadPlugin loads a plugin from the specified path
+func (f *Framework) LoadPlugin(path string) error {
+	// Check if plugin system is enabled
+	if f.pluginManager == nil {
+		return fmt.Errorf("plugin system is not enabled")
+	}
+
+	// Create a default plugin config
+	config := PluginConfig{
+		Path:    path,
+		Enabled: true,
+	}
+
+	// Delegate to PluginManager
+	return f.pluginManager.LoadPlugin(path, config)
+}
+
 // startupHookContext is a minimal context implementation for startup hooks
 type startupHookContext struct {
 	ctx context.Context
@@ -517,6 +534,10 @@ func (c *startupHookContext) Response() ResponseWriter {
 
 func (c *startupHookContext) Params() map[string]string {
 	return nil
+}
+
+func (c *startupHookContext) Param(name string) string {
+	return ""
 }
 
 func (c *startupHookContext) Query() map[string]string {
@@ -648,6 +669,10 @@ func (c *shutdownHookContext) Response() ResponseWriter {
 
 func (c *shutdownHookContext) Params() map[string]string {
 	return nil
+}
+
+func (c *shutdownHookContext) Param(name string) string {
+	return ""
 }
 
 func (c *shutdownHookContext) Query() map[string]string {

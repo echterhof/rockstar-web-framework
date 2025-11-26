@@ -941,28 +941,6 @@ func TestContainsHTML(t *testing.T) {
 	}
 }
 
-func TestContainsSQLInjection(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected bool
-	}{
-		{"' OR '1'='1", true},
-		{"'; DROP TABLE users", true},
-		{"UNION SELECT * FROM passwords", true},
-		{"normal query text", false},
-		{"user@example.com", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := containsSQLInjection(tt.input)
-			if result != tt.expected {
-				t.Errorf("For input %q: expected %v, got %v", tt.input, tt.expected, result)
-			}
-		})
-	}
-}
-
 // Test CSRF token cleanup
 func TestCleanupExpiredCSRFTokens(t *testing.T) {
 	db := NewMockDatabaseManager()

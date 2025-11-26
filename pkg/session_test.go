@@ -28,6 +28,7 @@ type mockContext struct {
 func (m *mockContext) Request() *Request                                            { return m.request }
 func (m *mockContext) Response() ResponseWriter                                     { return nil }
 func (m *mockContext) Params() map[string]string                                    { return nil }
+func (m *mockContext) Param(name string) string                                     { return "" }
 func (m *mockContext) Query() map[string]string                                     { return nil }
 func (m *mockContext) Headers() map[string]string                                   { return m.headers }
 func (m *mockContext) Body() []byte                                                 { return nil }
@@ -634,8 +635,9 @@ func TestSessionManager_CleanupExpired(t *testing.T) {
 	}
 
 	// All sessions should be cleaned up
-	if len(db.sessions) != 0 {
-		t.Errorf("Expected 0 sessions after cleanup, got %d", len(db.sessions))
+	mockDB := db.(*MockDatabaseManager)
+	if len(mockDB.sessions) != 0 {
+		t.Errorf("Expected 0 sessions after cleanup, got %d", len(mockDB.sessions))
 	}
 
 	// Verify sessions cannot be loaded

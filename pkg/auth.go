@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -286,21 +287,18 @@ func (am *AuthManager) CreateAccessToken(userID, tenantID string, scopes []strin
 	return accessToken, nil
 }
 
-// tokenCounter is used to ensure unique token generation
-var tokenCounter int64 = 0
-
 // generateSecureToken generates a cryptographically secure random token
 func (am *AuthManager) generateSecureToken() string {
-	// Use current time with nanosecond precision plus a counter for uniqueness
-	now := time.Now()
-	tokenCounter++
-	data := fmt.Sprintf("%d-%d-%d-%s", now.Unix(), now.Nanosecond(), tokenCounter, now.String())
+	// Generate 32 bytes of cryptographically secure random data
+	randomBytes := make([]byte, 32)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// Fallback: this should never happen, but if it does, panic
+		// as we cannot generate secure tokens without crypto/rand
+		panic(fmt.Sprintf("failed to generate secure random token: %v", err))
+	}
 
-	mac := hmac.New(sha256.New, am.jwtSecret)
-	mac.Write([]byte(data))
-	hash := mac.Sum(nil)
-
-	return base64.RawURLEncoding.EncodeToString(hash)
+	// Encode to base64 for safe string representation
+	return base64.RawURLEncoding.EncodeToString(randomBytes)
 }
 
 // RevokeAccessToken revokes an access token

@@ -498,7 +498,13 @@ func (sm *sessionManager) saveToFilesystem(session *Session) error {
 		return fmt.Errorf("failed to marshal session: %w", err)
 	}
 
-	filename := filepath.Join(sm.config.FilesystemPath, session.ID+".json")
+	// Validate session ID to prevent path traversal
+	validator := NewPathValidator(sm.config.FilesystemPath)
+	filename, err := validator.ResolvePath(session.ID + ".json")
+	if err != nil {
+		return fmt.Errorf("invalid session ID: %w", err)
+	}
+
 	if err := os.WriteFile(filename, data, 0600); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
@@ -515,7 +521,13 @@ func (sm *sessionManager) loadFromFilesystem(sessionID string) (*Session, error)
 	}
 	sm.mu.RUnlock()
 
-	filename := filepath.Join(sm.config.FilesystemPath, sessionID+".json")
+	// Validate session ID to prevent path traversal
+	validator := NewPathValidator(sm.config.FilesystemPath)
+	filename, err := validator.ResolvePath(sessionID + ".json")
+	if err != nil {
+		return nil, fmt.Errorf("invalid session ID: %w", err)
+	}
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -542,7 +554,13 @@ func (sm *sessionManager) deleteFromFilesystem(sessionID string) error {
 
 	delete(sm.sessions, sessionID)
 
-	filename := filepath.Join(sm.config.FilesystemPath, sessionID+".json")
+	// Validate session ID to prevent path traversal
+	validator := NewPathValidator(sm.config.FilesystemPath)
+	filename, err := validator.ResolvePath(sessionID + ".json")
+	if err != nil {
+		return fmt.Errorf("invalid session ID: %w", err)
+	}
+
 	if err := os.Remove(filename); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete session file: %w", err)
 	}

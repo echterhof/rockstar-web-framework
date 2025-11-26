@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -84,6 +85,13 @@ func NewServer(config ServerConfig) Server {
 
 // Listen starts the HTTP server on the specified address
 func (s *httpServer) Listen(addr string) error {
+	// Warn about HTTP usage
+	if s.logger != nil {
+		s.logger.Warn("SECURITY WARNING: Starting HTTP server without TLS. Use ListenTLS() for production!")
+	} else {
+		fmt.Println("SECURITY WARNING: Starting HTTP server without TLS. Use ListenTLS() for production!")
+	}
+
 	s.mu.Lock()
 
 	if s.running.Load() {
@@ -180,15 +188,34 @@ func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 		return fmt.Errorf("failed to load TLS certificates: %w", err)
 	}
 
-	// Configure TLS
+	// Configure TLS with secure defaults
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+		},
+		PreferServerCipherSuites: true,
+		CurvePreferences: []tls.CurveID{
+			tls.X25519,
+			tls.CurveP256,
+		},
 	}
 
 	// Enable HTTP/2 if configured
 	if s.http2Enabled {
 		tlsConfig.NextProtos = append(tlsConfig.NextProtos, "h2", "http/1.1")
+	}
+
+	// Enable HSTS by default for TLS connections
+	if !s.config.EnableHSTS {
+		s.config.EnableHSTS = true
+		s.config.HSTSMaxAge = 365 * 24 * time.Hour // 1 year default
 	}
 
 	if s.config.TLSConfig != nil {
@@ -637,6 +664,18 @@ func (s *httpServer) createHandler() http.Handler {
 		default:
 		}
 
+		// Set HSTS header for HTTPS connections
+		if s.config.EnableHSTS && r.TLS != nil {
+			hstsValue := fmt.Sprintf("max-age=%d", int(s.config.HSTSMaxAge.Seconds()))
+			if s.config.HSTSIncludeSubdomains {
+				hstsValue += "; includeSubDomains"
+			}
+			if s.config.HSTSPreload {
+				hstsValue += "; preload"
+			}
+			w.Header().Set("Strict-Transport-Security", hstsValue)
+		}
+
 		// Parse request
 		req, err := s.parseRequest(r)
 		if err != nil {
@@ -853,8 +892,58 @@ func defaultErrorHandler(ctx Context, err error) error {
 	return nil
 }
 
-// generateRequestID generates a unique request ID
+// generateRequestID generates a unique request ID using UUIDv7
+// UUIDv7 provides time-ordered, globally unique identifiers
 func generateRequestID() string {
-	// Simple implementation - in production use UUID or similar
-	return fmt.Sprintf("req-%d", time.Now().UnixNano())
+	// Generate UUIDv7 (time-ordered UUID)
+	uuid := generateUUIDv7()
+	return fmt.Sprintf("req-%s", uuid)
+}
+
+// generateUUIDv7 generates a UUIDv7 (time-ordered UUID)
+// Format: unix_ts_ms (48 bits) + ver (4 bits) + rand_a (12 bits) + var (2 bits) + rand_b (62 bits)
+func generateUUIDv7() string {
+	// Get current timestamp in milliseconds
+	now := time.Now()
+	unixMs := uint64(now.UnixMilli())
+
+	// Generate random bytes
+	randomBytes := make([]byte, 10)
+	if _, err := rand.Read(randomBytes); err != nil {
+		// Fallback to timestamp-based if random fails
+		return fmt.Sprintf("%016x-%04x-%04x-%04x-%012x",
+			unixMs,
+			uint16(now.UnixNano()&0xFFFF),
+			uint16((now.UnixNano()>>16)&0xFFFF),
+			uint16((now.UnixNano()>>32)&0xFFFF),
+			uint64(now.UnixNano()>>48)&0xFFFFFFFFFFFF,
+		)
+	}
+
+	// Build UUIDv7
+	// Timestamp (48 bits)
+	uuid := make([]byte, 16)
+	uuid[0] = byte(unixMs >> 40)
+	uuid[1] = byte(unixMs >> 32)
+	uuid[2] = byte(unixMs >> 24)
+	uuid[3] = byte(unixMs >> 16)
+	uuid[4] = byte(unixMs >> 8)
+	uuid[5] = byte(unixMs)
+
+	// Version (4 bits) + rand_a (12 bits)
+	uuid[6] = (0x70 | (randomBytes[0] & 0x0F)) // Version 7
+	uuid[7] = randomBytes[1]
+
+	// Variant (2 bits) + rand_b (62 bits)
+	uuid[8] = (0x80 | (randomBytes[2] & 0x3F)) // Variant 10
+	copy(uuid[9:], randomBytes[3:10])
+
+	// Format as string: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
+		uint32(unixMs>>16),
+		uint16(unixMs&0xFFFF)<<4|uint16(randomBytes[0]&0x0F),
+		uint16(randomBytes[1])<<8|uint16(randomBytes[2]&0x3F)|0x8000,
+		uint16(randomBytes[3])<<8|uint16(randomBytes[4]),
+		uint64(randomBytes[5])<<32|uint64(randomBytes[6])<<24|uint64(randomBytes[7])<<16|uint64(randomBytes[8])<<8|uint64(randomBytes[9]),
+	)
 }

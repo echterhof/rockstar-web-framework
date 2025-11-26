@@ -1175,3 +1175,134 @@ func TestIntegration_DefaultsAppliedBeforeComponentInitialization(t *testing.T) 
 		t.Errorf("Expected MetricsPort=9090, got %d", config.MonitoringConfig.MetricsPort)
 	}
 }
+
+// TestLoadPluginWithDisabledPluginSystem tests LoadPlugin when plugin system is disabled
+func TestLoadPluginWithDisabledPluginSystem(t *testing.T) {
+	// Create framework without plugin system
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: ":memory:",
+			Options: map[string]string{
+				"sql_dir": "../sql",
+			},
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
+		EnablePlugins: false, // Plugin system disabled
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework: %v", err)
+	}
+
+	// Try to load a plugin
+	err = app.LoadPlugin("./test-plugin.so")
+	if err == nil {
+		t.Fatal("Expected error when loading plugin with disabled plugin system")
+	}
+
+	expectedError := "plugin system is not enabled"
+	if err.Error() != expectedError {
+		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
+	}
+}
+
+// TestLoadPluginWithEnabledPluginSystem tests LoadPlugin when plugin system is enabled
+func TestLoadPluginWithEnabledPluginSystem(t *testing.T) {
+	// Create framework with plugin system enabled
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: ":memory:",
+			Options: map[string]string{
+				"sql_dir": "../sql",
+			},
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
+		EnablePlugins: true, // Plugin system enabled
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework: %v", err)
+	}
+
+	// Verify plugin manager is available
+	if app.PluginManager() == nil {
+		t.Fatal("Plugin manager should not be nil when plugins are enabled")
+	}
+
+	// Try to load a plugin with invalid path (should fail but not because system is disabled)
+	err = app.LoadPlugin("./non-existent-plugin.so")
+	if err == nil {
+		t.Fatal("Expected error when loading non-existent plugin")
+	}
+
+	// Error should NOT be about plugin system being disabled
+	if err.Error() == "plugin system is not enabled" {
+		t.Error("Should not get 'plugin system is not enabled' error when plugins are enabled")
+	}
+}
+
+// TestLoadPluginWithValidPath tests LoadPlugin with a valid plugin path
+// Note: This test requires an actual plugin file to exist, so we skip it in normal test runs
+func TestLoadPluginWithValidPath(t *testing.T) {
+	t.Skip("Skipping test that requires actual plugin file")
+
+	// Create framework with plugin system enabled
+	config := FrameworkConfig{
+		ServerConfig: ServerConfig{
+			EnableHTTP1: true,
+		},
+		DatabaseConfig: DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: ":memory:",
+			Options: map[string]string{
+				"sql_dir": "../sql",
+			},
+		},
+		SessionConfig: SessionConfig{
+			StorageType:     SessionStorageCache,
+			CookieName:      "test_session",
+			SessionLifetime: 1 * time.Hour,
+			CleanupInterval: 5 * time.Minute,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
+		EnablePlugins: true,
+	}
+
+	app, err := New(config)
+	if err != nil {
+		t.Fatalf("Failed to create framework: %v", err)
+	}
+
+	// Load a valid plugin
+	err = app.LoadPlugin("./plugins/test-plugin.so")
+	if err != nil {
+		t.Fatalf("Failed to load plugin: %v", err)
+	}
+
+	// Verify plugin was loaded
+	if !app.PluginManager().IsLoaded("test-plugin") {
+		t.Error("Plugin should be loaded")
+	}
+}

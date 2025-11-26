@@ -183,6 +183,10 @@ func TestWebSocketServerHostRouting(t *testing.T) {
 // Requirements: 3.6
 func TestWebSocketAuthentication(t *testing.T) {
 	db := NewMockDatabaseManager()
+	if err := db.Connect(DatabaseConfig{Driver: "mock"}); err != nil {
+		t.Fatalf("Failed to connect mock database: %v", err)
+	}
+	defer db.Close()
 	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
 
 	// Create a valid access token
@@ -237,6 +241,10 @@ func TestWebSocketAuthentication(t *testing.T) {
 // Requirements: 3.6
 func TestWebSocketAuthenticationFailure(t *testing.T) {
 	db := NewMockDatabaseManager()
+	if err := db.Connect(DatabaseConfig{Driver: "mock"}); err != nil {
+		t.Fatalf("Failed to connect mock database: %v", err)
+	}
+	defer db.Close()
 	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
 	wsServer := NewWebSocketServer(authManager)
 
@@ -304,6 +312,10 @@ func TestWebSocketAuthenticationFailure(t *testing.T) {
 // Requirements: 3.6
 func TestWebSocketAuthenticationWithInsufficientScopes(t *testing.T) {
 	db := NewMockDatabaseManager()
+	if err := db.Connect(DatabaseConfig{Driver: "mock"}); err != nil {
+		t.Fatalf("Failed to connect mock database: %v", err)
+	}
+	defer db.Close()
 	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
 
 	// Create token with "chat" scope
@@ -351,6 +363,10 @@ func TestWebSocketAuthenticationWithInsufficientScopes(t *testing.T) {
 // Requirements: 3.6
 func TestWebSocketAuthenticationWithHeader(t *testing.T) {
 	db := NewMockDatabaseManager()
+	if err := db.Connect(DatabaseConfig{Driver: "mock"}); err != nil {
+		t.Fatalf("Failed to connect mock database: %v", err)
+	}
+	defer db.Close()
 	authManager := NewAuthManager(db, "test-secret", OAuth2Config{})
 
 	token, err := authManager.CreateAccessToken("user123", "tenant456", []string{"chat"}, 1*time.Hour)
