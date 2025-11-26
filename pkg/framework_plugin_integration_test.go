@@ -14,6 +14,9 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			DatabaseConfig: DatabaseConfig{
 				Driver:   "sqlite3",
 				Database: ":memory:",
+				Options: map[string]string{
+					"sql_dir": "../sql",
+				},
 			},
 			CacheConfig: CacheConfig{
 				DefaultTTL: 5 * time.Minute,
@@ -42,6 +45,9 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			DatabaseConfig: DatabaseConfig{
 				Driver:   "sqlite3",
 				Database: ":memory:",
+				Options: map[string]string{
+					"sql_dir": "../sql",
+				},
 			},
 			CacheConfig: CacheConfig{
 				DefaultTTL: 5 * time.Minute,
@@ -70,6 +76,9 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			DatabaseConfig: DatabaseConfig{
 				Driver:   "sqlite3",
 				Database: ":memory:",
+				Options: map[string]string{
+					"sql_dir": "../sql",
+				},
 			},
 			CacheConfig: CacheConfig{
 				DefaultTTL: 5 * time.Minute,
@@ -149,6 +158,9 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			DatabaseConfig: DatabaseConfig{
 				Driver:   "sqlite3",
 				Database: ":memory:",
+				Options: map[string]string{
+					"sql_dir": "../sql",
+				},
 			},
 			CacheConfig: CacheConfig{
 				DefaultTTL: 5 * time.Minute,
@@ -223,6 +235,9 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			DatabaseConfig: DatabaseConfig{
 				Driver:   "sqlite3",
 				Database: ":memory:",
+				Options: map[string]string{
+					"sql_dir": "../sql",
+				},
 			},
 			CacheConfig: CacheConfig{
 				DefaultTTL: 5 * time.Minute,

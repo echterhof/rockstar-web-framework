@@ -20,9 +20,10 @@ import (
 
 // databaseManager implements the DatabaseManager interface
 type databaseManager struct {
-	db     *sql.DB
-	config DatabaseConfig
-	mutex  sync.RWMutex
+	db        *sql.DB
+	config    DatabaseConfig
+	mutex     sync.RWMutex
+	sqlLoader SQLLoader
 }
 
 // transaction implements the Transaction interface
@@ -77,6 +78,25 @@ func (dm *databaseManager) Connect(config DatabaseConfig) error {
 	dm.db = db
 	dm.config = config
 
+	// Initialize SQL loader
+	sqlDir := "./sql"
+	if config.Options != nil {
+		if customDir, ok := config.Options["sql_dir"]; ok {
+			sqlDir = customDir
+		}
+	}
+
+	loader, err := NewSQLLoader(config.Driver, sqlDir)
+	if err != nil {
+		return fmt.Errorf("failed to create SQL loader: %w", err)
+	}
+
+	if err := loader.LoadAll(); err != nil {
+		return fmt.Errorf("failed to load SQL files: %w", err)
+	}
+
+	dm.sqlLoader = loader
+
 	return nil
 }
 
@@ -90,7 +110,7 @@ func (dm *databaseManager) buildDSN(config DatabaseConfig) (string, error) {
 	case "mssql", "sqlserver":
 		return dm.buildMSSQLDSN(config), nil
 	case "sqlite3", "sqlite":
-		return config.Database, nil
+		return dm.buildSQLiteDSN(config), nil
 	default:
 		return "", fmt.Errorf("unsupported database driver: %s", config.Driver)
 	}
@@ -150,6 +170,29 @@ func (dm *databaseManager) buildPostgresDSN(config DatabaseConfig) string {
 func (dm *databaseManager) buildMSSQLDSN(config DatabaseConfig) string {
 	return fmt.Sprintf("server=%s;port=%d;database=%s;user id=%s;password=%s",
 		config.Host, config.Port, config.Database, config.Username, config.Password)
+}
+
+// buildSQLiteDSN builds SQLite connection string with required pragmas
+func (dm *databaseManager) buildSQLiteDSN(config DatabaseConfig) string {
+	dsn := config.Database
+
+	// Append SQLite-specific parameters for optimal performance and correctness
+	params := []string{
+		"_journal_mode=WAL",  // Enable Write-Ahead Logging for better concurrency
+		"_foreign_keys=ON",   // Enable foreign key constraint enforcement
+		"_busy_timeout=5000", // Wait up to 5 seconds when database is locked
+	}
+
+	// Add custom options from config
+	for key, value := range config.Options {
+		params = append(params, key+"="+value)
+	}
+
+	if len(params) > 0 {
+		dsn += "?" + strings.Join(params, "&")
+	}
+
+	return dsn
 }
 
 // Close closes the database connection
@@ -311,9 +354,10 @@ func (dm *databaseManager) SaveAccessToken(token *AccessToken) error {
 		return fmt.Errorf("failed to marshal token scopes: %w", err)
 	}
 
-	query := `INSERT INTO access_tokens (token, user_id, tenant_id, scopes, expires_at, created_at) 
-			  VALUES (?, ?, ?, ?, ?, ?) 
-			  ON DUPLICATE KEY UPDATE user_id = ?, tenant_id = ?, scopes = ?, expires_at = ?`
+	query, err := dm.sqlLoader.GetQuery("save_token")
+	if err != nil {
+		return fmt.Errorf("failed to load save_token query: %w", err)
+	}
 
 	if token.CreatedAt.IsZero() {
 		token.CreatedAt = time.Now()
@@ -321,24 +365,24 @@ func (dm *databaseManager) SaveAccessToken(token *AccessToken) error {
 
 	_, err = dm.Exec(query,
 		token.Token, token.UserID, token.TenantID, string(scopesJSON),
-		token.ExpiresAt, token.CreatedAt,
-		// ON DUPLICATE KEY UPDATE values
-		token.UserID, token.TenantID, string(scopesJSON), token.ExpiresAt)
+		token.ExpiresAt, token.CreatedAt)
 
 	return err
 }
 
 // LoadAccessToken loads an access token from the database
 func (dm *databaseManager) LoadAccessToken(tokenValue string) (*AccessToken, error) {
-	query := `SELECT token, user_id, tenant_id, scopes, expires_at, created_at 
-			  FROM access_tokens WHERE token = ?`
+	query, err := dm.sqlLoader.GetQuery("load_token")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load load_token query: %w", err)
+	}
 
 	row := dm.QueryRow(query, tokenValue)
 
 	token := &AccessToken{}
 	var scopesJSON string
 
-	err := row.Scan(&token.Token, &token.UserID, &token.TenantID, &scopesJSON,
+	err = row.Scan(&token.Token, &token.UserID, &token.TenantID, &scopesJSON,
 		&token.ExpiresAt, &token.CreatedAt)
 
 	if err != nil {
@@ -357,15 +401,17 @@ func (dm *databaseManager) LoadAccessToken(tokenValue string) (*AccessToken, err
 
 // ValidateAccessToken validates an access token and returns it if valid
 func (dm *databaseManager) ValidateAccessToken(tokenValue string) (*AccessToken, error) {
-	query := `SELECT token, user_id, tenant_id, scopes, expires_at, created_at 
-			  FROM access_tokens WHERE token = ? AND expires_at > ?`
+	query, err := dm.sqlLoader.GetQuery("validate_token")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load validate_token query: %w", err)
+	}
 
 	row := dm.QueryRow(query, tokenValue, time.Now())
 
 	token := &AccessToken{}
 	var scopesJSON string
 
-	err := row.Scan(&token.Token, &token.UserID, &token.TenantID, &scopesJSON,
+	err = row.Scan(&token.Token, &token.UserID, &token.TenantID, &scopesJSON,
 		&token.ExpiresAt, &token.CreatedAt)
 
 	if err != nil {
@@ -384,15 +430,21 @@ func (dm *databaseManager) ValidateAccessToken(tokenValue string) (*AccessToken,
 
 // DeleteAccessToken deletes an access token from the database
 func (dm *databaseManager) DeleteAccessToken(tokenValue string) error {
-	query := `DELETE FROM access_tokens WHERE token = ?`
-	_, err := dm.Exec(query, tokenValue)
+	query, err := dm.sqlLoader.GetQuery("delete_token")
+	if err != nil {
+		return fmt.Errorf("failed to load delete_token query: %w", err)
+	}
+	_, err = dm.Exec(query, tokenValue)
 	return err
 }
 
 // CleanupExpiredTokens removes expired access tokens from the database
 func (dm *databaseManager) CleanupExpiredTokens() error {
-	query := `DELETE FROM access_tokens WHERE expires_at <= ?`
-	_, err := dm.Exec(query, time.Now())
+	query, err := dm.sqlLoader.GetQuery("cleanup_expired_tokens")
+	if err != nil {
+		return fmt.Errorf("failed to load cleanup_expired_tokens query: %w", err)
+	}
+	_, err = dm.Exec(query, time.Now())
 	return err
 }
 
@@ -408,9 +460,10 @@ func (dm *databaseManager) SaveTenant(tenant *Tenant) error {
 		return fmt.Errorf("failed to marshal tenant config: %w", err)
 	}
 
-	query := `INSERT INTO tenants (id, name, hosts, config, is_active, created_at, updated_at, max_users, max_storage, max_requests) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
-			  ON DUPLICATE KEY UPDATE name = ?, hosts = ?, config = ?, is_active = ?, updated_at = ?, max_users = ?, max_storage = ?, max_requests = ?`
+	query, err := dm.sqlLoader.GetQuery("save_tenant")
+	if err != nil {
+		return fmt.Errorf("failed to load save_tenant query: %w", err)
+	}
 
 	now := time.Now()
 	if tenant.CreatedAt.IsZero() {
@@ -421,25 +474,24 @@ func (dm *databaseManager) SaveTenant(tenant *Tenant) error {
 	_, err = dm.Exec(query,
 		tenant.ID, tenant.Name, string(hostsJSON), string(configJSON),
 		tenant.IsActive, tenant.CreatedAt, tenant.UpdatedAt,
-		tenant.MaxUsers, tenant.MaxStorage, tenant.MaxRequests,
-		// ON DUPLICATE KEY UPDATE values
-		tenant.Name, string(hostsJSON), string(configJSON), tenant.IsActive,
-		tenant.UpdatedAt, tenant.MaxUsers, tenant.MaxStorage, tenant.MaxRequests)
+		tenant.MaxUsers, tenant.MaxStorage, tenant.MaxRequests)
 
 	return err
 }
 
 // LoadTenant loads a tenant by ID from the database
 func (dm *databaseManager) LoadTenant(tenantID string) (*Tenant, error) {
-	query := `SELECT id, name, hosts, config, is_active, created_at, updated_at, max_users, max_storage, max_requests 
-			  FROM tenants WHERE id = ?`
+	query, err := dm.sqlLoader.GetQuery("load_tenant")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load load_tenant query: %w", err)
+	}
 
 	row := dm.QueryRow(query, tenantID)
 
 	tenant := &Tenant{}
 	var hostsJSON, configJSON string
 
-	err := row.Scan(&tenant.ID, &tenant.Name, &hostsJSON, &configJSON,
+	err = row.Scan(&tenant.ID, &tenant.Name, &hostsJSON, &configJSON,
 		&tenant.IsActive, &tenant.CreatedAt, &tenant.UpdatedAt,
 		&tenant.MaxUsers, &tenant.MaxStorage, &tenant.MaxRequests)
 
@@ -463,16 +515,18 @@ func (dm *databaseManager) LoadTenant(tenantID string) (*Tenant, error) {
 
 // LoadTenantByHost loads a tenant by hostname from the database
 func (dm *databaseManager) LoadTenantByHost(hostname string) (*Tenant, error) {
-	query := `SELECT id, name, hosts, config, is_active, created_at, updated_at, max_users, max_storage, max_requests 
-			  FROM tenants WHERE JSON_CONTAINS(hosts, ?) AND is_active = true`
+	query, err := dm.sqlLoader.GetQuery("load_tenant_by_host")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load load_tenant_by_host query: %w", err)
+	}
 
-	hostnameJSON, _ := json.Marshal(hostname)
-	row := dm.QueryRow(query, string(hostnameJSON))
+	// Pass hostname directly - json_each.value returns raw string values
+	row := dm.QueryRow(query, hostname)
 
 	tenant := &Tenant{}
 	var hostsJSON, configJSON string
 
-	err := row.Scan(&tenant.ID, &tenant.Name, &hostsJSON, &configJSON,
+	err = row.Scan(&tenant.ID, &tenant.Name, &hostsJSON, &configJSON,
 		&tenant.IsActive, &tenant.CreatedAt, &tenant.UpdatedAt,
 		&tenant.MaxUsers, &tenant.MaxStorage, &tenant.MaxRequests)
 
@@ -496,12 +550,12 @@ func (dm *databaseManager) LoadTenantByHost(hostname string) (*Tenant, error) {
 
 // SaveWorkloadMetrics saves workload metrics to the database
 func (dm *databaseManager) SaveWorkloadMetrics(metrics *WorkloadMetrics) error {
-	query := `INSERT INTO workload_metrics 
-			  (timestamp, tenant_id, user_id, request_id, duration_ms, context_size, memory_usage, cpu_usage, 
-			   path, method, status_code, response_size, error_message) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	query, err := dm.sqlLoader.GetQuery("save_workload_metrics")
+	if err != nil {
+		return fmt.Errorf("failed to load save_workload_metrics query: %w", err)
+	}
 
-	_, err := dm.Exec(query,
+	_, err = dm.Exec(query,
 		metrics.Timestamp, metrics.TenantID, metrics.UserID, metrics.RequestID,
 		metrics.Duration, metrics.ContextSize, metrics.MemoryUsage, metrics.CPUUsage,
 		metrics.Path, metrics.Method, metrics.StatusCode, metrics.ResponseSize, metrics.ErrorMessage)
@@ -511,11 +565,10 @@ func (dm *databaseManager) SaveWorkloadMetrics(metrics *WorkloadMetrics) error {
 
 // GetWorkloadMetrics retrieves workload metrics for a tenant within a time range
 func (dm *databaseManager) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
-	query := `SELECT id, timestamp, tenant_id, user_id, request_id, duration_ms, context_size, memory_usage, cpu_usage, 
-			  path, method, status_code, response_size, error_message 
-			  FROM workload_metrics 
-			  WHERE tenant_id = ? AND timestamp BETWEEN ? AND ? 
-			  ORDER BY timestamp DESC`
+	query, err := dm.sqlLoader.GetQuery("get_workload_metrics")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load get_workload_metrics query: %w", err)
+	}
 
 	rows, err := dm.Query(query, tenantID, from, to)
 	if err != nil {
@@ -542,7 +595,11 @@ func (dm *databaseManager) GetWorkloadMetrics(tenantID string, from, to time.Tim
 func (dm *databaseManager) CheckRateLimit(key string, limit int, window time.Duration) (bool, error) {
 	windowStart := time.Now().Add(-window)
 
-	query := `SELECT COUNT(*) FROM rate_limits WHERE rate_key = ? AND created_at > ?`
+	query, err := dm.sqlLoader.GetQuery("check_rate_limit")
+	if err != nil {
+		return false, fmt.Errorf("failed to load check_rate_limit query: %w", err)
+	}
+
 	row := dm.QueryRow(query, key, windowStart)
 
 	var count int
@@ -555,14 +612,22 @@ func (dm *databaseManager) CheckRateLimit(key string, limit int, window time.Dur
 
 // IncrementRateLimit increments the rate limit counter for a key
 func (dm *databaseManager) IncrementRateLimit(key string, window time.Duration) error {
-	query := `INSERT INTO rate_limits (rate_key, created_at) VALUES (?, ?)`
-	_, err := dm.Exec(query, key, time.Now())
+	query, err := dm.sqlLoader.GetQuery("increment_rate_limit")
+	if err != nil {
+		return fmt.Errorf("failed to load increment_rate_limit query: %w", err)
+	}
+
+	_, err = dm.Exec(query, key, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to increment rate limit: %w", err)
 	}
 
 	// Clean up old entries
-	cleanupQuery := `DELETE FROM rate_limits WHERE created_at <= ?`
+	cleanupQuery, err := dm.sqlLoader.GetQuery("cleanup_rate_limits")
+	if err != nil {
+		return fmt.Errorf("failed to load cleanup_rate_limits query: %w", err)
+	}
+
 	_, err = dm.Exec(cleanupQuery, time.Now().Add(-window))
 
 	return err
@@ -577,11 +642,55 @@ func (dm *databaseManager) Migrate() error {
 
 // CreateTables creates all required database tables
 func (dm *databaseManager) CreateTables() error {
-	tables := dm.getTableSchemas()
+	// List of all table creation queries
+	tableQueries := []string{
+		"create_sessions_table",
+		"create_tokens_table",
+		"create_tenants_table",
+		"create_workload_metrics_table",
+		"create_rate_limits_table",
+		"create_plugins_table",
+		"create_plugin_hooks_table",
+		"create_plugin_events_table",
+		"create_plugin_storage_table",
+		"create_plugin_metrics_table",
+	}
 
-	for tableName, schema := range tables {
+	// Create each table using SQL loader
+	for _, queryName := range tableQueries {
+		schema, err := dm.sqlLoader.GetQuery(queryName)
+		if err != nil {
+			return fmt.Errorf("failed to load query %s: %w", queryName, err)
+		}
+
 		if _, err := dm.Exec(schema); err != nil {
-			return fmt.Errorf("failed to create table %s: %w", tableName, err)
+			return fmt.Errorf("failed to create table %s: %w", queryName, err)
+		}
+	}
+
+	// Create indexes
+	indexQueries := []string{
+		"index_sessions",
+		"index_tokens",
+		"index_tenants",
+		"index_metrics",
+		"index_rate_limits",
+		"index_plugins",
+		"index_plugin_hooks",
+		"index_plugin_events",
+		"index_plugin_storage",
+		"index_plugin_metrics",
+	}
+
+	for _, queryName := range indexQueries {
+		indexSQL, err := dm.sqlLoader.GetQuery(queryName)
+		if err != nil {
+			return fmt.Errorf("failed to load query %s: %w", queryName, err)
+		}
+
+		if _, err := dm.Exec(indexSQL); err != nil {
+			// Log but don't fail if index already exists
+			// Some databases may error on duplicate index creation
 		}
 	}
 
@@ -607,28 +716,42 @@ func (dm *databaseManager) DropTables() error {
 
 // InitializePluginTables creates plugin system tables
 func (dm *databaseManager) InitializePluginTables() error {
-	dm.mutex.RLock()
-	driver := dm.config.Driver
-	dm.mutex.RUnlock()
+	// List of plugin table creation queries
+	pluginTableQueries := []string{
+		"create_plugins_table",
+		"create_plugin_hooks_table",
+		"create_plugin_events_table",
+		"create_plugin_storage_table",
+		"create_plugin_metrics_table",
+	}
 
-	pluginTables := []string{"plugins", "plugin_hooks", "plugin_events", "plugin_storage", "plugin_metrics"}
-	schemas := dm.getPluginTableSchemas(driver)
-
-	// Create tables
-	for _, tableName := range pluginTables {
-		schema, exists := schemas[tableName]
-		if !exists {
-			return fmt.Errorf("schema not found for table: %s", tableName)
+	// Create tables using SQL loader
+	for _, queryName := range pluginTableQueries {
+		schema, err := dm.sqlLoader.GetQuery(queryName)
+		if err != nil {
+			return fmt.Errorf("failed to load query %s: %w", queryName, err)
 		}
 
 		if _, err := dm.Exec(schema); err != nil {
-			return fmt.Errorf("failed to create plugin table %s: %w", tableName, err)
+			return fmt.Errorf("failed to create plugin table %s: %w", queryName, err)
 		}
 	}
 
-	// Create indexes
-	indexes := dm.getPluginIndexes()
-	for _, indexSQL := range indexes {
+	// Create indexes using SQL loader
+	pluginIndexQueries := []string{
+		"index_plugins",
+		"index_plugin_hooks",
+		"index_plugin_events",
+		"index_plugin_storage",
+		"index_plugin_metrics",
+	}
+
+	for _, queryName := range pluginIndexQueries {
+		indexSQL, err := dm.sqlLoader.GetQuery(queryName)
+		if err != nil {
+			return fmt.Errorf("failed to load query %s: %w", queryName, err)
+		}
+
 		if _, err := dm.Exec(indexSQL); err != nil {
 			// Log but don't fail if index already exists
 			// Some databases may error on duplicate index creation
@@ -636,252 +759,4 @@ func (dm *databaseManager) InitializePluginTables() error {
 	}
 
 	return nil
-}
-
-// getPluginIndexes returns index creation statements for plugin tables
-func (dm *databaseManager) getPluginIndexes() []string {
-	return []string{
-		"CREATE INDEX IF NOT EXISTS idx_plugins_name ON plugins(name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugins_enabled ON plugins(enabled)",
-		"CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins(status)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_plugin ON plugin_hooks(plugin_name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_type ON plugin_hooks(hook_type)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_hooks_priority ON plugin_hooks(priority)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_events_name ON plugin_events(event_name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_events_publisher ON plugin_events(publisher_plugin)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_events_subscriber ON plugin_events(subscriber_plugin)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_storage_plugin ON plugin_storage(plugin_name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_storage_key ON plugin_storage(storage_key)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_plugin ON plugin_metrics(plugin_name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_name ON plugin_metrics(metric_name)",
-		"CREATE INDEX IF NOT EXISTS idx_plugin_metrics_recorded ON plugin_metrics(recorded_at)",
-	}
-}
-
-// getPluginTableSchemas returns plugin table schemas for the specified driver
-func (dm *databaseManager) getPluginTableSchemas(driver string) map[string]string {
-	// Determine auto-increment syntax based on driver
-	autoIncrement := "AUTO_INCREMENT"
-	if driver == "sqlite3" || driver == "sqlite" {
-		autoIncrement = "AUTOINCREMENT"
-	} else if driver == "postgres" {
-		autoIncrement = "SERIAL"
-	}
-
-	// For SQLite, we need to use INTEGER PRIMARY KEY for auto-increment
-	idColumn := fmt.Sprintf("id INTEGER PRIMARY KEY %s", autoIncrement)
-	if driver == "sqlite3" || driver == "sqlite" {
-		idColumn = "id INTEGER PRIMARY KEY AUTOINCREMENT"
-	} else if driver == "postgres" {
-		idColumn = "id SERIAL PRIMARY KEY"
-	} else {
-		idColumn = "id BIGINT AUTO_INCREMENT PRIMARY KEY"
-	}
-
-	return map[string]string{
-		"plugins": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugins (
-			%s,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			version VARCHAR(50) NOT NULL,
-			description TEXT,
-			author VARCHAR(255),
-			enabled BOOLEAN DEFAULT TRUE,
-			loaded_at TIMESTAMP,
-			config TEXT,
-			permissions TEXT,
-			status VARCHAR(50),
-			error_count INTEGER DEFAULT 0,
-			last_error TEXT,
-			last_error_at TIMESTAMP
-		)`, idColumn),
-
-		"plugin_hooks": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_hooks (
-			%s,
-			plugin_name VARCHAR(255) NOT NULL,
-			hook_type VARCHAR(50) NOT NULL,
-			priority INTEGER DEFAULT 0,
-			execution_count INTEGER DEFAULT 0,
-			total_duration_ms INTEGER DEFAULT 0,
-			error_count INTEGER DEFAULT 0,
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`, idColumn),
-
-		"plugin_events": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_events (
-			%s,
-			event_name VARCHAR(255) NOT NULL,
-			publisher_plugin VARCHAR(255) NOT NULL,
-			subscriber_plugin VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (publisher_plugin) REFERENCES plugins(name) ON DELETE CASCADE,
-			FOREIGN KEY (subscriber_plugin) REFERENCES plugins(name) ON DELETE CASCADE
-		)`, idColumn),
-
-		"plugin_storage": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_storage (
-			%s,
-			plugin_name VARCHAR(255) NOT NULL,
-			storage_key VARCHAR(255) NOT NULL,
-			storage_value TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE (plugin_name, storage_key),
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`, idColumn),
-
-		"plugin_metrics": fmt.Sprintf(`CREATE TABLE IF NOT EXISTS plugin_metrics (
-			%s,
-			plugin_name VARCHAR(255) NOT NULL,
-			metric_name VARCHAR(255) NOT NULL,
-			metric_value DOUBLE NOT NULL,
-			tags TEXT,
-			recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`, idColumn),
-	}
-}
-
-// getTableSchemas returns SQL schemas for all framework tables
-func (dm *databaseManager) getTableSchemas() map[string]string {
-	// Note: These schemas are MySQL-compatible. In a production system,
-	// you'd want to have driver-specific schemas or use a migration tool.
-	return map[string]string{
-		"sessions": `CREATE TABLE IF NOT EXISTS sessions (
-			id VARCHAR(255) PRIMARY KEY,
-			user_id VARCHAR(255) NOT NULL,
-			tenant_id VARCHAR(255) NOT NULL,
-			data JSON,
-			expires_at TIMESTAMP NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			ip_address VARCHAR(45),
-			user_agent TEXT,
-			INDEX idx_sessions_expires (expires_at),
-			INDEX idx_sessions_user (user_id),
-			INDEX idx_sessions_tenant (tenant_id)
-		)`,
-
-		"access_tokens": `CREATE TABLE IF NOT EXISTS access_tokens (
-			token VARCHAR(255) PRIMARY KEY,
-			user_id VARCHAR(255) NOT NULL,
-			tenant_id VARCHAR(255) NOT NULL,
-			scopes JSON,
-			expires_at TIMESTAMP NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			INDEX idx_tokens_expires (expires_at),
-			INDEX idx_tokens_user (user_id),
-			INDEX idx_tokens_tenant (tenant_id)
-		)`,
-
-		"tenants": `CREATE TABLE IF NOT EXISTS tenants (
-			id VARCHAR(255) PRIMARY KEY,
-			name VARCHAR(255) NOT NULL,
-			hosts JSON,
-			config JSON,
-			is_active BOOLEAN DEFAULT TRUE,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			max_users INT DEFAULT 0,
-			max_storage BIGINT DEFAULT 0,
-			max_requests BIGINT DEFAULT 0,
-			INDEX idx_tenants_active (is_active)
-		)`,
-
-		"workload_metrics": `CREATE TABLE IF NOT EXISTS workload_metrics (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			tenant_id VARCHAR(255) NOT NULL,
-			user_id VARCHAR(255),
-			request_id VARCHAR(255),
-			duration_ms BIGINT,
-			context_size BIGINT,
-			memory_usage BIGINT,
-			cpu_usage DOUBLE,
-			path VARCHAR(500),
-			method VARCHAR(10),
-			status_code INT,
-			response_size BIGINT,
-			error_message TEXT,
-			INDEX idx_metrics_timestamp (timestamp),
-			INDEX idx_metrics_tenant (tenant_id),
-			INDEX idx_metrics_user (user_id)
-		)`,
-
-		"rate_limits": `CREATE TABLE IF NOT EXISTS rate_limits (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			rate_key VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			INDEX idx_rate_limits_key_time (rate_key, created_at)
-		)`,
-
-		"plugins": `CREATE TABLE IF NOT EXISTS plugins (
-			id INTEGER PRIMARY KEY AUTO_INCREMENT,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			version VARCHAR(50) NOT NULL,
-			description TEXT,
-			author VARCHAR(255),
-			enabled BOOLEAN DEFAULT TRUE,
-			loaded_at TIMESTAMP,
-			config JSON,
-			permissions JSON,
-			status VARCHAR(50),
-			error_count INTEGER DEFAULT 0,
-			last_error TEXT,
-			last_error_at TIMESTAMP,
-			INDEX idx_plugins_name (name),
-			INDEX idx_plugins_enabled (enabled),
-			INDEX idx_plugins_status (status)
-		)`,
-
-		"plugin_hooks": `CREATE TABLE IF NOT EXISTS plugin_hooks (
-			id INTEGER PRIMARY KEY AUTO_INCREMENT,
-			plugin_name VARCHAR(255) NOT NULL,
-			hook_type VARCHAR(50) NOT NULL,
-			priority INTEGER DEFAULT 0,
-			execution_count INTEGER DEFAULT 0,
-			total_duration_ms INTEGER DEFAULT 0,
-			error_count INTEGER DEFAULT 0,
-			INDEX idx_plugin_hooks_plugin (plugin_name),
-			INDEX idx_plugin_hooks_type (hook_type),
-			INDEX idx_plugin_hooks_priority (priority),
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`,
-
-		"plugin_events": `CREATE TABLE IF NOT EXISTS plugin_events (
-			id INTEGER PRIMARY KEY AUTO_INCREMENT,
-			event_name VARCHAR(255) NOT NULL,
-			publisher_plugin VARCHAR(255) NOT NULL,
-			subscriber_plugin VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			INDEX idx_plugin_events_name (event_name),
-			INDEX idx_plugin_events_publisher (publisher_plugin),
-			INDEX idx_plugin_events_subscriber (subscriber_plugin),
-			FOREIGN KEY (publisher_plugin) REFERENCES plugins(name) ON DELETE CASCADE,
-			FOREIGN KEY (subscriber_plugin) REFERENCES plugins(name) ON DELETE CASCADE
-		)`,
-
-		"plugin_storage": `CREATE TABLE IF NOT EXISTS plugin_storage (
-			id INTEGER PRIMARY KEY AUTO_INCREMENT,
-			plugin_name VARCHAR(255) NOT NULL,
-			storage_key VARCHAR(255) NOT NULL,
-			storage_value TEXT,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY unique_plugin_key (plugin_name, storage_key),
-			INDEX idx_plugin_storage_plugin (plugin_name),
-			INDEX idx_plugin_storage_key (storage_key),
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`,
-
-		"plugin_metrics": `CREATE TABLE IF NOT EXISTS plugin_metrics (
-			id INTEGER PRIMARY KEY AUTO_INCREMENT,
-			plugin_name VARCHAR(255) NOT NULL,
-			metric_name VARCHAR(255) NOT NULL,
-			metric_value DOUBLE NOT NULL,
-			tags JSON,
-			recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			INDEX idx_plugin_metrics_plugin (plugin_name),
-			INDEX idx_plugin_metrics_name (metric_name),
-			INDEX idx_plugin_metrics_recorded (recorded_at),
-			FOREIGN KEY (plugin_name) REFERENCES plugins(name) ON DELETE CASCADE
-		)`,
-	}
 }

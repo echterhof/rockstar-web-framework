@@ -26,7 +26,7 @@ func (dm *databaseManager) buildDSN(config DatabaseConfig) (string, error) {
 	case "mssql", "sqlserver":
 		return dm.buildMSSQLDSN(config), nil
 	case "sqlite3", "sqlite":
-		return config.Database, nil
+		return dm.buildSQLiteDSN(config), nil
 	default:
 		return "", fmt.Errorf("unsupported database driver: %s", config.Driver)
 	}
@@ -86,4 +86,27 @@ func (dm *databaseManager) buildPostgresDSN(config DatabaseConfig) string {
 func (dm *databaseManager) buildMSSQLDSN(config DatabaseConfig) string {
 	return fmt.Sprintf("server=%s;port=%d;database=%s;user id=%s;password=%s",
 		config.Host, config.Port, config.Database, config.Username, config.Password)
+}
+
+// buildSQLiteDSN builds SQLite connection string with required pragmas
+func (dm *databaseManager) buildSQLiteDSN(config DatabaseConfig) string {
+	dsn := config.Database
+
+	// Append SQLite-specific parameters for optimal performance and correctness
+	params := []string{
+		"_journal_mode=WAL",  // Enable Write-Ahead Logging for better concurrency
+		"_foreign_keys=ON",   // Enable foreign key constraint enforcement
+		"_busy_timeout=5000", // Wait up to 5 seconds when database is locked
+	}
+
+	// Add custom options from config
+	for key, value := range config.Options {
+		params = append(params, key+"="+value)
+	}
+
+	if len(params) > 0 {
+		dsn += "?" + strings.Join(params, "&")
+	}
+
+	return dsn
 }

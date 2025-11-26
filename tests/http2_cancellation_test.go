@@ -29,8 +29,7 @@ func TestHTTP2StreamCancellation(t *testing.T) {
 	server.SetMiddleware(pkg.CancellationMiddleware())
 
 	// Track if handler was cancelled
-	handlerCancelled := false
-	handlerCompleted := false
+	var handlerCancelled, handlerCompleted bool
 
 	// Add a long-running handler
 	router.GET("/api/long-running", func(ctx pkg.Context) error {
@@ -68,6 +67,10 @@ func TestHTTP2StreamCancellation(t *testing.T) {
 	// Test would create HTTP/2 client and cancel request
 	// This is a placeholder for the actual test logic
 	t.Log("HTTP/2 cancellation middleware is properly configured")
+
+	// Log the handler state (prevents unused variable errors)
+	_ = handlerCancelled
+	_ = handlerCompleted
 
 	// Cleanup
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)

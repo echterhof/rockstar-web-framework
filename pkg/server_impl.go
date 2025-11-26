@@ -85,9 +85,9 @@ func NewServer(config ServerConfig) Server {
 // Listen starts the HTTP server on the specified address
 func (s *httpServer) Listen(addr string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.running.Load() {
+		s.mu.Unlock()
 		return errors.New("server is already running")
 	}
 
@@ -128,6 +128,7 @@ func (s *httpServer) Listen(addr string) error {
 	}
 
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
 	s.listener = listener
@@ -137,6 +138,9 @@ func (s *httpServer) Listen(addr string) error {
 
 	// Mark as running
 	s.running.Store(true)
+
+	// Release mutex before blocking call
+	s.mu.Unlock()
 
 	// Start serving (blocking)
 	var serveErr error
@@ -161,9 +165,9 @@ func (s *httpServer) Listen(addr string) error {
 // ListenTLS starts the HTTPS server with TLS
 func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.running.Load() {
+		s.mu.Unlock()
 		return errors.New("server is already running")
 	}
 
@@ -172,6 +176,7 @@ func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 	// Load TLS certificates
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to load TLS certificates: %w", err)
 	}
 
@@ -233,6 +238,7 @@ func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 	}
 
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to create base listener: %w", err)
 	}
 
@@ -247,12 +253,16 @@ func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 	// Configure HTTP/2
 	if s.http2Enabled {
 		if err := http2.ConfigureServer(s.httpServer, &http2.Server{}); err != nil {
+			s.mu.Unlock()
 			return fmt.Errorf("failed to configure HTTP/2: %w", err)
 		}
 	}
 
 	// Mark as running
 	s.running.Store(true)
+
+	// Release mutex before blocking call
+	s.mu.Unlock()
 
 	// Start serving (blocking)
 	serveErr := s.httpServer.Serve(listener)
@@ -269,13 +279,14 @@ func (s *httpServer) ListenTLS(addr, certFile, keyFile string) error {
 // ListenQUIC starts the QUIC server with HTTP/3
 func (s *httpServer) ListenQUIC(addr, certFile, keyFile string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.running.Load() {
+		s.mu.Unlock()
 		return errors.New("server is already running")
 	}
 
 	if !s.quicEnabled {
+		s.mu.Unlock()
 		return errors.New("QUIC protocol is not enabled")
 	}
 
@@ -284,6 +295,7 @@ func (s *httpServer) ListenQUIC(addr, certFile, keyFile string) error {
 	// Load TLS certificates
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to load TLS certificates: %w", err)
 	}
 
@@ -317,12 +329,14 @@ func (s *httpServer) ListenQUIC(addr, certFile, keyFile string) error {
 	// Create UDP address
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to resolve UDP address: %w", err)
 	}
 
 	// Create UDP connection
 	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
+		s.mu.Unlock()
 		return fmt.Errorf("failed to create UDP listener: %w", err)
 	}
 
@@ -330,6 +344,7 @@ func (s *httpServer) ListenQUIC(addr, certFile, keyFile string) error {
 	quicListener, err := quic.ListenEarly(udpConn, tlsConfig, quicConfig)
 	if err != nil {
 		udpConn.Close()
+		s.mu.Unlock()
 		return fmt.Errorf("failed to create QUIC listener: %w", err)
 	}
 	s.quicListener = quicListener
@@ -343,6 +358,9 @@ func (s *httpServer) ListenQUIC(addr, certFile, keyFile string) error {
 
 	// Mark as running
 	s.running.Store(true)
+
+	// Release mutex before blocking call
+	s.mu.Unlock()
 
 	// Start serving (blocking)
 	serveErr := s.http3Server.ServeListener(quicListener)

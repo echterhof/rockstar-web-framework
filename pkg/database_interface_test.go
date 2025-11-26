@@ -720,7 +720,7 @@ func TestDatabaseManager_DSNBuilding(t *testing.T) {
 				Driver:   "sqlite3",
 				Database: "/path/to/db.sqlite",
 			},
-			expected: "/path/to/db.sqlite",
+			expected: "/path/to/db.sqlite?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=5000",
 		},
 		{
 			name: "MSSQL DSN",

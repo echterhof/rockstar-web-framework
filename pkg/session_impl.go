@@ -27,9 +27,20 @@ func (ss *sessionStorage) SaveSession(session *Session) error {
 		return fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
-	query := `INSERT INTO sessions (id, user_id, tenant_id, data, expires_at, created_at, updated_at, ip_address, user_agent) 
-			  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
-			  ON DUPLICATE KEY UPDATE data = ?, expires_at = ?, updated_at = ?, ip_address = ?, user_agent = ?`
+	// Get the SQL query from the loader
+	dm, ok := ss.db.(*databaseManager)
+	if !ok {
+		return fmt.Errorf("invalid database manager type")
+	}
+
+	if dm.sqlLoader == nil {
+		return fmt.Errorf("SQL loader not initialized")
+	}
+
+	query, err := dm.sqlLoader.GetQuery("save_session")
+	if err != nil {
+		return fmt.Errorf("failed to load save_session query: %w", err)
+	}
 
 	now := time.Now()
 	if session.CreatedAt.IsZero() {
@@ -40,9 +51,6 @@ func (ss *sessionStorage) SaveSession(session *Session) error {
 	_, err = ss.db.Exec(query,
 		session.ID, session.UserID, session.TenantID, string(dataJSON),
 		session.ExpiresAt, session.CreatedAt, session.UpdatedAt,
-		session.IPAddress, session.UserAgent,
-		// ON DUPLICATE KEY UPDATE values
-		string(dataJSON), session.ExpiresAt, session.UpdatedAt,
 		session.IPAddress, session.UserAgent)
 
 	return err
@@ -50,15 +58,27 @@ func (ss *sessionStorage) SaveSession(session *Session) error {
 
 // LoadSession loads a session from the database
 func (ss *sessionStorage) LoadSession(sessionID string) (*Session, error) {
-	query := `SELECT id, user_id, tenant_id, data, expires_at, created_at, updated_at, ip_address, user_agent 
-			  FROM sessions WHERE id = ? AND expires_at > ?`
+	// Get the SQL query from the loader
+	dm, ok := ss.db.(*databaseManager)
+	if !ok {
+		return nil, fmt.Errorf("invalid database manager type")
+	}
+
+	if dm.sqlLoader == nil {
+		return nil, fmt.Errorf("SQL loader not initialized")
+	}
+
+	query, err := dm.sqlLoader.GetQuery("load_session")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load load_session query: %w", err)
+	}
 
 	row := ss.db.QueryRow(query, sessionID, time.Now())
 
 	session := &Session{}
 	var dataJSON string
 
-	err := row.Scan(&session.ID, &session.UserID, &session.TenantID, &dataJSON,
+	err = row.Scan(&session.ID, &session.UserID, &session.TenantID, &dataJSON,
 		&session.ExpiresAt, &session.CreatedAt, &session.UpdatedAt,
 		&session.IPAddress, &session.UserAgent)
 
@@ -78,15 +98,43 @@ func (ss *sessionStorage) LoadSession(sessionID string) (*Session, error) {
 
 // DeleteSession deletes a session from the database
 func (ss *sessionStorage) DeleteSession(sessionID string) error {
-	query := `DELETE FROM sessions WHERE id = ?`
-	_, err := ss.db.Exec(query, sessionID)
+	// Get the SQL query from the loader
+	dm, ok := ss.db.(*databaseManager)
+	if !ok {
+		return fmt.Errorf("invalid database manager type")
+	}
+
+	if dm.sqlLoader == nil {
+		return fmt.Errorf("SQL loader not initialized")
+	}
+
+	query, err := dm.sqlLoader.GetQuery("delete_session")
+	if err != nil {
+		return fmt.Errorf("failed to load delete_session query: %w", err)
+	}
+
+	_, err = ss.db.Exec(query, sessionID)
 	return err
 }
 
 // CleanupExpiredSessions removes expired sessions from the database
 func (ss *sessionStorage) CleanupExpiredSessions() error {
-	query := `DELETE FROM sessions WHERE expires_at <= ?`
-	_, err := ss.db.Exec(query, time.Now())
+	// Get the SQL query from the loader
+	dm, ok := ss.db.(*databaseManager)
+	if !ok {
+		return fmt.Errorf("invalid database manager type")
+	}
+
+	if dm.sqlLoader == nil {
+		return fmt.Errorf("SQL loader not initialized")
+	}
+
+	query, err := dm.sqlLoader.GetQuery("cleanup_expired_sessions")
+	if err != nil {
+		return fmt.Errorf("failed to load cleanup_expired_sessions query: %w", err)
+	}
+
+	_, err = ss.db.Exec(query, time.Now())
 	return err
 }
 

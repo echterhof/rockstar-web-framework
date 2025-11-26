@@ -18,6 +18,9 @@ func TestPluginDatabaseSchema_Creation(t *testing.T) {
 	config := DatabaseConfig{
 		Driver:   "sqlite3",
 		Database: dbFile,
+		Options: map[string]string{
+			"sql_dir": "../sql",
+		},
 	}
 
 	if err := db.Connect(config); err != nil {
@@ -61,6 +64,9 @@ func TestPluginDatabaseSchema_Indexes(t *testing.T) {
 	config := DatabaseConfig{
 		Driver:   "sqlite3",
 		Database: dbFile,
+		Options: map[string]string{
+			"sql_dir": "../sql",
+		},
 	}
 
 	if err := db.Connect(config); err != nil {
@@ -109,6 +115,9 @@ func TestPluginDatabaseSchema_ForeignKeys(t *testing.T) {
 	config := DatabaseConfig{
 		Driver:   "sqlite3",
 		Database: dbFile,
+		Options: map[string]string{
+			"sql_dir": "../sql",
+		},
 	}
 
 	if err := db.Connect(config); err != nil {
