@@ -515,6 +515,4 @@ type HostConfig struct {
 
 ## References
 
-- Requirements: 8.1, 8.2, 8.5, 8.6
-- Design Document: Multi-Server Architecture section
 - Related Components: Router, Security, Database

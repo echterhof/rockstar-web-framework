@@ -14,24 +14,44 @@ import (
 )
 
 var (
-	addr       = flag.String("addr", ":8080", "Server address")
-	configFile = flag.String("config", "config.yaml", "Configuration file path")
-	tlsCert    = flag.String("tls-cert", "", "TLS certificate file")
-	tlsKey     = flag.String("tls-key", "", "TLS key file")
-	enableQUIC = flag.Bool("quic", false, "Enable QUIC protocol")
-	dbDriver   = flag.String("db-driver", "sqlite", "Database driver (mysql, postgres, mssql, sqlite)")
-	dbHost     = flag.String("db-host", "localhost", "Database host")
-	dbPort     = flag.Int("db-port", 5432, "Database port")
-	dbName     = flag.String("db-name", "rockstar.db", "Database name")
-	dbUser     = flag.String("db-user", "", "Database username")
-	dbPass     = flag.String("db-pass", "", "Database password")
+	addr          = flag.String("addr", ":8080", "Server address")
+	configFile    = flag.String("config", "config.yaml", "Configuration file path")
+	tlsCert       = flag.String("tls-cert", "", "TLS certificate file")
+	tlsKey        = flag.String("tls-key", "", "TLS key file")
+	enableQUIC    = flag.Bool("quic", false, "Enable QUIC protocol")
+	enableHTTP2   = flag.Bool("http2", true, "Enable HTTP/2 protocol")
+	dbDriver      = flag.String("db-driver", "sqlite", "Database driver (mysql, postgres, mssql, sqlite)")
+	dbHost        = flag.String("db-host", "localhost", "Database host")
+	dbPort        = flag.Int("db-port", 5432, "Database port")
+	dbName        = flag.String("db-name", "rockstar.db", "Database name")
+	dbUser        = flag.String("db-user", "", "Database username")
+	dbPass        = flag.String("db-pass", "", "Database password")
+	pluginDir     = flag.String("plugin-dir", "./plugins", "Plugin directory path")
+	localesDir    = flag.String("locales-dir", "./locales", "Locales directory path")
+	enableMetrics = flag.Bool("metrics", true, "Enable metrics endpoint")
+	enablePprof   = flag.Bool("pprof", false, "Enable pprof debugging endpoints")
+	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
+	version       = flag.Bool("version", false, "Print version and exit")
 )
+
+const appVersion = "1.0.0"
 
 func main() {
 	flag.Parse()
 
+	// Handle version flag
+	if *version {
+		fmt.Printf("Rockstar Web Framework v%s\n", appVersion)
+		os.Exit(0)
+	}
+
 	// Print banner
 	printBanner()
+
+	// Validate flags
+	if err := validateFlags(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
 
 	// Create configuration
 	config := createConfig()
@@ -40,6 +60,11 @@ func main() {
 	app, err := pkg.New(config)
 	if err != nil {
 		log.Fatalf("Failed to create framework: %v", err)
+	}
+
+	// Load plugins if directory exists
+	if err := loadPlugins(app); err != nil {
+		log.Printf("Warning: Failed to load plugins: %v", err)
 	}
 
 	// Setup lifecycle hooks
@@ -65,16 +90,44 @@ func printBanner() {
 ║   🎸  ROCKSTAR WEB FRAMEWORK  🎸                         ║
 ║                                                           ║
 ║   High-Performance Enterprise Go Web Framework            ║
-║   Version 1.0.0                                           ║
+║   Version %-48s║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 `
-	fmt.Println(banner)
+	fmt.Printf(banner, appVersion)
+}
+
+func validateFlags() error {
+	// Validate TLS configuration
+	if (*tlsCert != "" && *tlsKey == "") || (*tlsCert == "" && *tlsKey != "") {
+		return fmt.Errorf("both tls-cert and tls-key must be provided together")
+	}
+
+	// Validate QUIC requires TLS
+	if *enableQUIC && (*tlsCert == "" || *tlsKey == "") {
+		return fmt.Errorf("QUIC protocol requires TLS certificate and key")
+	}
+
+	// Validate database port
+	if *dbPort < 1 || *dbPort > 65535 {
+		return fmt.Errorf("invalid database port: %d", *dbPort)
+	}
+
+	// Validate log level
+	validLogLevels := map[string]bool{"debug": true, "info": true, "warn": true, "error": true}
+	if !validLogLevels[*logLevel] {
+		return fmt.Errorf("invalid log level: %s (must be debug, info, warn, or error)", *logLevel)
+	}
+
+	return nil
 }
 
 func createConfig() pkg.FrameworkConfig {
 	// Generate encryption key for session (32 bytes for AES-256)
 	encryptionKey := make([]byte, 32)
+	for i := range encryptionKey {
+		encryptionKey[i] = byte(i)
+	}
 
 	config := pkg.FrameworkConfig{
 		ServerConfig: pkg.ServerConfig{
@@ -83,11 +136,11 @@ func createConfig() pkg.FrameworkConfig {
 			IdleTimeout:     120 * time.Second,
 			MaxHeaderBytes:  2 << 20,
 			EnableHTTP1:     true,
-			EnableHTTP2:     true,
+			EnableHTTP2:     *enableHTTP2,
 			EnableQUIC:      *enableQUIC,
-			EnableMetrics:   true,
+			EnableMetrics:   *enableMetrics,
 			MetricsPath:     "/metrics",
-			EnablePprof:     true,
+			EnablePprof:     *enablePprof,
 			PprofPath:       "/debug/pprof",
 			ShutdownTimeout: 30 * time.Second,
 		},
@@ -122,8 +175,8 @@ func createConfig() pkg.FrameworkConfig {
 		},
 		I18nConfig: pkg.I18nConfig{
 			DefaultLocale:     "en",
-			LocalesDir:        "./locales",
-			SupportedLocales:  []string{"en", "de"},
+			LocalesDir:        *localesDir,
+			SupportedLocales:  []string{"en", "de", "es", "fr"},
 			FallbackToDefault: true,
 		},
 		SecurityConfig: pkg.SecurityConfig{
@@ -138,19 +191,64 @@ func createConfig() pkg.FrameworkConfig {
 			AllowedOrigins:   []string{"*"},
 		},
 		MonitoringConfig: pkg.MonitoringConfig{
-			EnableMetrics: true,
+			EnableMetrics: *enableMetrics,
 			MetricsPath:   "/metrics",
-			EnablePprof:   true,
+			EnablePprof:   *enablePprof,
 			PprofPath:     "/debug/pprof",
 		},
 	}
 
-	// Load config file if specified
+	// Load config file if specified and exists
 	if *configFile != "" {
-		config.ConfigFiles = []string{*configFile}
+		if _, err := os.Stat(*configFile); err == nil {
+			config.ConfigFiles = []string{*configFile}
+			log.Printf("Loading configuration from: %s", *configFile)
+		} else {
+			log.Printf("Config file not found: %s (using defaults)", *configFile)
+		}
 	}
 
 	return config
+}
+
+func loadPlugins(app *pkg.Framework) error {
+	// Check if plugin directory exists
+	if _, err := os.Stat(*pluginDir); os.IsNotExist(err) {
+		log.Printf("Plugin directory not found: %s (skipping plugin loading)", *pluginDir)
+		return nil
+	}
+
+	entries, err := os.ReadDir(*pluginDir)
+	if err != nil {
+		return fmt.Errorf("failed to read plugin directory: %w", err)
+	}
+
+	pluginCount := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !isPluginFile(entry.Name()) {
+			continue
+		}
+
+		pluginPath := fmt.Sprintf("%s/%s", *pluginDir, entry.Name())
+		if err := app.LoadPlugin(pluginPath); err != nil {
+			log.Printf("Warning: Failed to load plugin %s: %v", entry.Name(), err)
+			continue
+		}
+
+		log.Printf("✓ Loaded plugin: %s", entry.Name())
+		pluginCount++
+	}
+
+	if pluginCount > 0 {
+		log.Printf("Loaded %d plugin(s)", pluginCount)
+	}
+
+	return nil
+}
+
+func isPluginFile(filename string) bool {
+	// Check for .so (Linux/Unix) or .dll (Windows) extensions
+	return len(filename) > 3 && (filename[len(filename)-3:] == ".so" || filename[len(filename)-4:] == ".dll")
 }
 
 func setupHooks(app *pkg.Framework) {
@@ -166,6 +264,19 @@ func setupHooks(app *pkg.Framework) {
 	})
 
 	app.RegisterStartupHook(func(ctx context.Context) error {
+		// Print configuration summary
+		protocols := []string{"HTTP/1.1"}
+		if *enableHTTP2 {
+			protocols = append(protocols, "HTTP/2")
+		}
+		if *enableQUIC {
+			protocols = append(protocols, "QUIC")
+		}
+		log.Printf("✓ Protocols enabled: %v", protocols)
+		return nil
+	})
+
+	app.RegisterStartupHook(func(ctx context.Context) error {
 		log.Println("✓ Framework ready")
 		return nil
 	})
@@ -175,48 +286,142 @@ func setupHooks(app *pkg.Framework) {
 		log.Println("✓ Graceful shutdown initiated")
 		return nil
 	})
+
+	app.RegisterShutdownHook(func(ctx context.Context) error {
+		log.Println("✓ Cleaning up resources")
+		return nil
+	})
 }
 
 func setupRoutes(app *pkg.Framework) {
 	router := app.Router()
 
 	// Health check endpoints
-	router.GET("/health", func(ctx pkg.Context) error {
-		return ctx.JSON(200, map[string]interface{}{
-			"status": "healthy",
-			"time":   time.Now().Unix(),
-		})
-	})
+	router.GET("/health", handleHealth)
+	router.GET("/ready", handleReady)
+	router.GET("/", handleRoot)
 
-	router.GET("/ready", func(ctx pkg.Context) error {
-		return ctx.JSON(200, map[string]interface{}{
-			"status": "ready",
-		})
-	})
-
-	// API root
-	router.GET("/", func(ctx pkg.Context) error {
-		return ctx.JSON(200, map[string]interface{}{
-			"message": "Welcome to Rockstar Web Framework! 🎸",
-			"version": "1.0.0",
-			"endpoints": map[string]string{
-				"health":  "/health",
-				"ready":   "/ready",
-				"metrics": "/metrics",
-				"pprof":   "/debug/pprof",
-			},
-		})
-	})
-
-	// Example API routes
+	// API routes
 	api := router.Group("/api/v1")
-	api.GET("/status", func(ctx pkg.Context) error {
-		return ctx.JSON(200, map[string]interface{}{
-			"api_version": "v1",
-			"status":      "operational",
-		})
+	api.GET("/status", handleAPIStatus)
+	api.GET("/info", handleAPIInfo)
+
+	// Example CRUD endpoints
+	api.GET("/items", handleListItems)
+	api.GET("/items/:id", handleGetItem)
+	api.POST("/items", handleCreateItem)
+	api.PUT("/items/:id", handleUpdateItem)
+	api.DELETE("/items/:id", handleDeleteItem)
+}
+
+func handleHealth(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().Unix(),
+		"uptime":    time.Since(startTime).Seconds(),
 	})
 }
+
+func handleReady(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"status": "ready",
+	})
+}
+
+func handleRoot(ctx pkg.Context) error {
+	endpoints := map[string]string{
+		"health": "/health",
+		"ready":  "/ready",
+		"api":    "/api/v1",
+	}
+
+	if *enableMetrics {
+		endpoints["metrics"] = "/metrics"
+	}
+	if *enablePprof {
+		endpoints["pprof"] = "/debug/pprof"
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message":   "Welcome to Rockstar Web Framework! 🎸",
+		"version":   appVersion,
+		"endpoints": endpoints,
+	})
+}
+
+func handleAPIStatus(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"api_version": "v1",
+		"status":      "operational",
+		"timestamp":   time.Now().Unix(),
+	})
+}
+
+func handleAPIInfo(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"framework": "Rockstar Web Framework",
+		"version":   appVersion,
+		"protocols": getEnabledProtocols(),
+		"database":  *dbDriver,
+	})
+}
+
+func handleListItems(ctx pkg.Context) error {
+	// Example: Return mock items
+	items := []map[string]interface{}{
+		{"id": 1, "name": "Item 1", "description": "First item"},
+		{"id": 2, "name": "Item 2", "description": "Second item"},
+	}
+	return ctx.JSON(200, map[string]interface{}{
+		"items": items,
+		"total": len(items),
+	})
+}
+
+func handleGetItem(ctx pkg.Context) error {
+	id := ctx.Param("id")
+	return ctx.JSON(200, map[string]interface{}{
+		"id":          id,
+		"name":        "Sample Item",
+		"description": "This is a sample item",
+	})
+}
+
+func handleCreateItem(ctx pkg.Context) error {
+	return ctx.JSON(201, map[string]interface{}{
+		"message": "Item created successfully",
+		"id":      "new-item-id",
+	})
+}
+
+func handleUpdateItem(ctx pkg.Context) error {
+	id := ctx.Param("id")
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Item updated successfully",
+		"id":      id,
+	})
+}
+
+func handleDeleteItem(ctx pkg.Context) error {
+	id := ctx.Param("id")
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Item deleted successfully",
+		"id":      id,
+	})
+}
+
+func getEnabledProtocols() []string {
+	protocols := []string{"HTTP/1.1"}
+	if *enableHTTP2 {
+		protocols = append(protocols, "HTTP/2")
+	}
+	if *enableQUIC {
+		protocols = append(protocols, "QUIC")
+	}
+	return protocols
+}
+
+var startTime = time.Now()
 
 func setupGracefulShutdown(app *pkg.Framework) {
 	sigChan := make(chan os.Signal, 1)

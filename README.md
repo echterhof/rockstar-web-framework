@@ -7,35 +7,14 @@ A high-performance, enterprise-grade Go web framework with multi-protocol suppor
 
 ## 🌟 Features
 
-### Core Features
 - **Multi-Protocol Support**: HTTP/1, HTTP/2, QUIC, WebSocket
 - **Multi-API Support**: REST, GraphQL, gRPC, SOAP
-- **Context-Driven Architecture**: Unified context for all request/response operations
-- **High Performance**: Built with performance in mind using Go's arena package for memory management
-
-### Security
-- **Authentication**: OAuth2, JWT support
-- **Authorization**: Role-based and action-based access control
-- **Built-in Protection**: XSS, CSRF, CORS, X-Frame-Options
-- **Request Validation**: Size limits, timeouts, bogus data detection
-- **Encrypted Sessions**: AES-encrypted session cookies
-
-### Enterprise Features
+- **Enterprise Security**: OAuth2, JWT, RBAC, CSRF/XSS protection, encrypted sessions
 - **Multi-Tenancy**: Host-based routing with tenant isolation
-- **Session Management**: Database, cache, or filesystem storage
+- **Plugin System**: Extensible architecture with hot reload support
 - **Internationalization**: Multi-language support with YAML locale files
-- **Database Support**: MySQL, PostgreSQL, MSSQL, SQLite
-- **Caching**: Request-level and distributed caching
-- **Forward Proxy**: Built-in load balancing and circuit breakers
-
-### Developer Experience
-- **Plugin System**: Extensible plugin architecture with hot reload support
-- **Middleware System**: Flexible, configurable middleware pipeline
-- **Pipeline Processing**: Parallel data processing with goroutines
-- **Template Engine**: Go template support with context passing
-- **Error Handling**: Internationalized error messages
-- **Monitoring**: Built-in metrics, pprof, SNMP support
-- **Graceful Shutdown**: Context-based graceful shutdown
+- **Database Support**: MySQL, PostgreSQL, MSSQL, SQLite with connection pooling
+- **Performance**: Arena-based memory management, request-level caching, efficient routing
 
 ## 📦 Installation
 
@@ -55,7 +34,6 @@ import (
 )
 
 func main() {
-    // Create framework configuration
     config := pkg.FrameworkConfig{
         ServerConfig: pkg.ServerConfig{
             ReadTimeout:  10 * time.Second,
@@ -69,389 +47,143 @@ func main() {
         },
     }
     
-    // Create framework instance
     app, err := pkg.New(config)
     if err != nil {
         log.Fatal(err)
     }
     
-    // Define routes
     app.Router().GET("/", func(ctx pkg.Context) error {
         return ctx.JSON(200, map[string]interface{}{
             "message": "Welcome to Rockstar! 🎸",
         })
     })
     
-    // Start server
     log.Fatal(app.Listen(":8080"))
 }
 ```
 
 ## 📚 Documentation
 
-### Quick Links
+### Getting Started
+- [Getting Started Guide](docs/GETTING_STARTED.md) - Step-by-step tutorial for new users
+- [Quick Reference](docs/QUICK_REFERENCE.md) - Fast lookup for common tasks
+- [Documentation Index](docs/DOCUMENTATION_INDEX.md) - Complete documentation catalog
 
-- **[Quick Reference](docs/QUICK_REFERENCE.md)** - Fast lookup for common tasks
-- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Complete documentation catalog
-- **[Getting Started](docs/GETTING_STARTED.md)** - Step-by-step tutorial
-- **[API Reference](docs/API_REFERENCE.md)** - Complete API documentation
-- **[Plugin System](docs/PLUGIN_SYSTEM.md)** - Plugin system overview and API
-- **[Plugin Development](docs/PLUGIN_DEVELOPMENT.md)** - Guide to creating plugins
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Production deployment
-- **[Changelog](docs/CHANGELOG.md)** - Documentation updates
+### Core Documentation
+- [API Reference](docs/API_REFERENCE.md) - Complete API documentation
+- [Architecture](docs/ARCHITECTURE.md) - System design and patterns
+- [Deployment Guide](docs/DEPLOYMENT.md) - Production deployment strategies
 
-### Project Structure
+### Feature Guides
+- [Plugin System](docs/PLUGIN_SYSTEM.md) - Plugin architecture overview
+- [Plugin Development](docs/PLUGIN_DEVELOPMENT.md) - Creating custom plugins
+- [Framework Integration](docs/FRAMEWORK_INTEGRATION.md) - Integration patterns
+
+### Implementation Guides
+- [REST API](docs/rest_api_implementation.md) - RESTful API implementation
+- [GraphQL](docs/graphql_implementation.md) - GraphQL API setup
+- [gRPC](docs/grpc_implementation.md) - gRPC service implementation
+- [SOAP](docs/soap_implementation.md) - SOAP service implementation
+- [Session Management](docs/session_implementation.md) - Session handling
+- [Caching](docs/cache_implementation.md) - Caching strategies
+- [Internationalization](docs/i18n_implementation.md) - Multi-language support
+- [Monitoring](docs/monitoring_implementation.md) - Metrics and profiling
+- [Security](docs/error_handling_implementation.md) - Error handling and security
+
+See [Documentation Index](docs/DOCUMENTATION_INDEX.md) for the complete list.
+
+## 🏗️ Project Structure
 
 ```
-├── cmd/                    # Main applications
-├── internal/              # Private application and library code
-├── pkg/                   # Framework library code
-│   ├── framework.go       # Main framework struct
-│   ├── server.go          # Server implementation
-│   ├── router.go          # Routing engine
-│   ├── context.go         # Request context
-│   ├── security.go        # Security features
-│   ├── database.go        # Database management
-│   ├── session.go         # Session management
-│   ├── cache.go           # Caching system
-│   └── ...                # Other components
-├── examples/              # Example applications
-│   ├── getting_started.go # Basic example
-│   ├── full_featured_app.go # Comprehensive example
-│   └── ...                # Feature-specific examples
-├── tests/                 # Integration and load tests
-├── docs/                  # Detailed documentation
-└── README.md              # This file
+rockstar-web-framework/
+├── cmd/                    # Main applications and CLI tools
+├── pkg/                   # Framework library code (single package)
+├── examples/              # Example applications and usage demos
+├── tests/                 # Integration and benchmark tests
+├── docs/                  # Comprehensive documentation
+├── sql/                   # Database-specific SQL queries
+├── locales/               # Default locale files for i18n
+├── plugins/               # Runtime plugin directory
+└── scripts/               # Build and utility scripts
 ```
 
-### Core Concepts
+## 🔧 Development
 
-#### Framework Instance
+```bash
+# Build the framework
+make build
 
-The `Framework` struct is the main entry point that wires all components together:
+# Run tests
+make test
 
-```go
-app, err := pkg.New(config)
+# Run tests with coverage
+make test-coverage
+
+# Format code
+make fmt
+
+# Run static analysis
+make vet
+
+# Run all checks
+make check
 ```
 
-#### Context
+## 📖 Examples
 
-The `Context` interface provides unified access to all request/response data and framework features:
+The `examples/` directory contains comprehensive examples demonstrating all framework features:
 
-```go
-func handler(ctx pkg.Context) error {
-    // Request data
-    params := ctx.Params()
-    query := ctx.Query()
-    headers := ctx.Headers()
-    
-    // Framework services
-    db := ctx.DB()
-    cache := ctx.Cache()
-    session := ctx.Session()
-    
-    // Response
-    return ctx.JSON(200, data)
-}
-```
+```bash
+# Run the getting started example
+go run examples/getting_started.go
 
-#### Routing
+# Run the full-featured application
+go run examples/full_featured_app.go
 
-The router supports multiple routing patterns:
-
-```go
-router := app.Router()
-
-// Basic routes
-router.GET("/users", listUsers)
-router.POST("/users", createUser)
-router.GET("/users/:id", getUser)
-
-// Route groups
-api := router.Group("/api/v1", authMiddleware)
-api.GET("/profile", getProfile)
-
-// Host-based routing (multi-tenancy)
-apiHost := router.Host("api.example.com")
-apiHost.GET("/", apiHome)
-
-// Static files
-router.Static("/static", fileSystem)
-
-// WebSocket
-router.WebSocket("/ws", wsHandler)
-```
-
-#### Middleware
-
-Middleware can be applied globally or per-route:
-
-```go
-// Global middleware
-app.Use(loggingMiddleware)
-app.Use(recoveryMiddleware)
-
-// Route-specific middleware
-router.GET("/admin", adminHandler, authMiddleware, adminMiddleware)
-
-// Group middleware
-admin := router.Group("/admin", authMiddleware, adminMiddleware)
-```
-
-#### Multi-Protocol APIs
-
-```go
-// REST API
-router.GET("/api/products", restHandler)
-
-// GraphQL
-router.GraphQL("/graphql", schema)
-
-// gRPC
-router.GRPC(grpcService)
-
-// SOAP
-router.SOAP("/soap", soapService)
-```
-
-### Configuration
-
-#### Server Configuration
-
-```go
-ServerConfig{
-    ReadTimeout:     10 * time.Second,
-    WriteTimeout:    10 * time.Second,
-    IdleTimeout:     60 * time.Second,
-    MaxHeaderBytes:  1 << 20,
-    EnableHTTP1:     true,
-    EnableHTTP2:     true,
-    EnableQUIC:      false,
-    EnableMetrics:   true,
-    MetricsPath:     "/metrics",
-    EnablePprof:     true,
-    PprofPath:       "/debug/pprof",
-}
-```
-
-#### Database Configuration
-
-```go
-DatabaseConfig{
-    Driver:          "postgres",
-    Host:            "localhost",
-    Port:            5432,
-    Database:        "myapp",
-    Username:        "user",
-    Password:        "pass",
-    MaxOpenConns:    25,
-    MaxIdleConns:    5,
-    ConnMaxLifetime: 5 * time.Minute,
-}
-```
-
-#### Security Configuration
-
-```go
-SecurityConfig{
-    EnableXFrameOptions: true,
-    XFrameOptions:       "DENY",
-    EnableCORS:          true,
-    EnableCSRF:          true,
-    EnableXSS:           true,
-    MaxRequestSize:      10 * 1024 * 1024,
-    RequestTimeout:      30 * time.Second,
-}
-```
-
-### Examples
-
-The `examples/` directory contains comprehensive examples:
-
-- **getting_started.go**: Basic framework usage
-- **full_featured_app.go**: All features demonstrated
-- **rest_api_example.go**: REST API implementation
-- **graphql_example.go**: GraphQL API implementation
-- **grpc_example.go**: gRPC service implementation
-- **multi_server_example.go**: Multi-tenancy setup
-- **middleware_example.go**: Custom middleware
-- **pipeline_example.go**: Data processing pipelines
-- **cache_example.go**: Caching strategies
-- **session_example.go**: Session management
-- **i18n_example.go**: Internationalization
-- **monitoring_example.go**: Metrics and profiling
-- **plugin_usage_example.go**: Plugin system usage
-
-### Advanced Features
-
-#### Plugin System
-
-```go
-// Load plugins from configuration
-config := pkg.FrameworkConfig{
-    PluginConfig: pkg.PluginConfig{
-        Enabled:   true,
-        Directory: "./plugins",
-        Plugins: []pkg.PluginLoadConfig{
-            {
-                Name:    "auth-plugin",
-                Enabled: true,
-                Path:    "./plugins/auth-plugin",
-                Config: map[string]interface{}{
-                    "jwt_secret": "secret",
-                },
-            },
-        },
-    },
-}
-
-app, err := pkg.New(config)
-
-// Access plugin manager
-pluginManager := app.PluginManager()
-
-// Load a plugin dynamically
-err = pluginManager.LoadPlugin("./plugins/my-plugin", pluginConfig)
-
-// Hot reload a plugin
-err = pluginManager.ReloadPlugin("my-plugin")
-
-// Get plugin health
-health := pluginManager.GetPluginHealth("my-plugin")
-```
-
-See [Plugin Development Guide](docs/PLUGIN_DEVELOPMENT.md) for creating plugins.
-
-#### Multi-Tenancy
-
-```go
-// Register hosts and tenants
-app.ServerManager().RegisterHost("api.example.com", hostConfig)
-app.ServerManager().RegisterTenant("tenant-1", []string{"api.example.com"})
-
-// Host-specific routes
-apiHost := router.Host("api.example.com")
-apiHost.GET("/", apiHandler)
-```
-
-#### Session Management
-
-```go
-func handler(ctx pkg.Context) error {
-    session := ctx.Session()
-    
-    // Get session data
-    userID := session.Get("user_id")
-    
-    // Set session data
-    session.Set("user_id", "123")
-    
-    // Save session
-    session.Save(ctx)
-    
-    return ctx.JSON(200, data)
-}
-```
-
-#### Internationalization
-
-```go
-// Load locales
-I18nConfig{
-    DefaultLocale: "en",
-    LocalesPath:   "./locales",
-    Locales:       []string{"en", "de", "fr"},
-}
-
-// Use in handlers
-func handler(ctx pkg.Context) error {
-    i18n := ctx.I18n()
-    message := i18n.Translate("welcome_message")
-    return ctx.String(200, message)
-}
-```
-
-#### Caching
-
-```go
-func handler(ctx pkg.Context) error {
-    cache := ctx.Cache()
-    
-    // Get from cache
-    data, found := cache.Get("key")
-    if found {
-        return ctx.JSON(200, data)
-    }
-    
-    // Fetch data
-    data = fetchData()
-    
-    // Store in cache
-    cache.Set("key", data, 5*time.Minute)
-    
-    return ctx.JSON(200, data)
-}
-```
-
-#### Monitoring
-
-```go
-// Enable metrics
-MonitoringConfig{
-    EnableMetrics:   true,
-    MetricsPath:     "/metrics",
-    EnablePprof:     true,
-    PprofPath:       "/debug/pprof",
-}
-
-// Access metrics
-metrics := app.Metrics()
-metrics.RecordRequest(method, path, duration)
+# Run specific feature examples
+go run examples/rest_api_example.go
+go run examples/graphql_example.go
+go run examples/plugin_usage_example.go
 ```
 
 ## 🧪 Testing
 
 ```bash
-# Run unit tests
+# Unit tests
 go test ./pkg/...
 
-# Run integration tests
+# Integration tests
 go test ./tests/...
 
-# Run benchmarks
+# Benchmarks
 go test -bench=. ./tests/...
 ```
 
 ## 📊 Performance
 
-The Rockstar Web Framework is designed for high performance:
-
-- Arena-based memory management for efficient garbage collection
-- Connection pooling for databases and proxies
+Designed for high performance with:
+- Arena-based memory management
+- Connection pooling
 - Request-level caching
 - Efficient routing with minimal allocations
-- Goroutine pooling for concurrent request handling
+- Goroutine pooling
 
-Benchmark comparisons with GoFiber and Gin are available in `tests/benchmark_test.go`.
+Benchmark comparisons available in `tests/benchmark_test.go`.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting pull requests.
+Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTING.md) before submitting pull requests.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-Built with Go and inspired by modern web frameworks while adding enterprise-grade features.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 📞 Support
 
-- Documentation: [docs/](docs/)
-- Examples: [examples/](examples/)
-- Issues: GitHub Issues
-- Discussions: GitHub Discussions
+- **Documentation**: [docs/](docs/)
+- **Examples**: [examples/](examples/)
+- **Issues**: GitHub Issues
+- **Discussions**: GitHub Discussions
 
 ---
 

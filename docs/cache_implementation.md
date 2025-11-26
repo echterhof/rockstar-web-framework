@@ -371,7 +371,7 @@ go func() {
 
 This implementation satisfies the following requirements:
 
-- **Requirement 14.1**: Request-specific cache using arena package
-- **Requirement 14.2**: Cache access through context
+- Request-specific cache using arena package
+- Cache access through context
 
 The cache system provides high-performance caching with both local and distributed support, integrated seamlessly with the framework's context system.

@@ -2986,7 +2986,4 @@ watch -n 5 'curl -s http://localhost:8080/metrics | grep plugin_hook_duration'
 
 For issues, questions, or contributions:
 
-- GitHub Issues: https://github.com/yourusername/rockstar/issues
-- Documentation: https://rockstar-framework.dev/docs
-- Community: https://discord.gg/rockstar-framework
-
+- GitHub Issues: https://github.com/echterhof/rockstar-web-framework

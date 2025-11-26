@@ -327,10 +327,10 @@ server.Listen(":8080")
 
 This implementation satisfies the following requirements:
 
-- **17.1**: Pprof support for built-in profiling
-- **17.2**: Process guided optimization
-- **17.3**: Metrics endpoint with disable option
-- **17.4**: SNMP support for workload data
-- **17.5**: Inspection of running instances
-- **11.4**: SNMP support for monitoring data
-- **11.5**: Logs and workload data through SNMP
+- Pprof support for built-in profiling
+- Process guided optimization
+- Metrics endpoint with disable option
+- SNMP support for workload data
+- Inspection of running instances
+- SNMP support for monitoring data
+- Logs and workload data through SNMP

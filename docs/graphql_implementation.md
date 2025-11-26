@@ -384,4 +384,3 @@ See `examples/graphql_example.go` for a complete working example.
 
 - [GraphQL Specification](https://spec.graphql.org/)
 - [GraphQL Best Practices](https://graphql.org/learn/best-practices/)
-- Framework Requirements: 2.1, 2.5, 2.6
