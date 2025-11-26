@@ -46,7 +46,7 @@ plugins:
 Load it in your application:
 
 ```go
-import "github.com/yourusername/rockstar/pkg"
+import "github.com/echterhof/rockstar-web-framework/pkg"
 
 framework, _ := pkg.NewFramework(config)
 framework.PluginManager().LoadPluginsFromConfig("my-config.yaml")
@@ -68,7 +68,7 @@ cd my-plugin
 ```go
 package main
 
-import "github.com/yourusername/rockstar/pkg"
+import "github.com/echterhof/rockstar-web-framework/pkg"
 
 type MyPlugin struct {
     ctx pkg.PluginContext
@@ -138,8 +138,8 @@ exports: []
 
 ```bash
 go mod init github.com/yourusername/my-plugin
-go mod edit -require github.com/yourusername/rockstar@v1.0.0
-go mod edit -replace github.com/yourusername/rockstar=../path/to/rockstar
+go mod edit -require github.com/echterhof/rockstar-web-framework@v1.0.0
+go mod edit -replace github.com/echterhof/rockstar-web-framework=../path/to/rockstar-web-framework
 ```
 
 #### Step 5: Load your plugin
@@ -252,7 +252,7 @@ package main
 
 import (
     "testing"
-    "github.com/yourusername/rockstar/pkg"
+    "github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func TestPluginInitialize(t *testing.T) {
@@ -282,8 +282,6 @@ go test ./...
 
 1. **Read the full documentation**: See [README.md](README.md) for detailed information
 2. **Study the examples**: Look at the four example plugins for different patterns
-3. **Check the design document**: Read [design.md](../../.kiro/specs/plugin-system/design.md) for architecture details
-4. **Join the community**: Get help and share your plugins
 
 ## Troubleshooting
 
@@ -307,8 +305,6 @@ go test ./...
 ## Resources
 
 - [Full README](README.md)
-- [Plugin System Design](../../.kiro/specs/plugin-system/design.md)
-- [Plugin System Requirements](../../.kiro/specs/plugin-system/requirements.md)
 - [Example Configuration](example-config.yaml)
 - [Usage Example](../plugin_usage_example.go)
 

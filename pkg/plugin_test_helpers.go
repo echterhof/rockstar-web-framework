@@ -132,6 +132,7 @@ func (m *MockDatabase) Connect(config DatabaseConfig) error { return nil }
 func (m *MockDatabase) Close() error                        { return nil }
 func (m *MockDatabase) Ping() error                         { return nil }
 func (m *MockDatabase) Stats() DatabaseStats                { return DatabaseStats{} }
+func (m *MockDatabase) IsConnected() bool                   { return true }
 func (m *MockDatabase) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return nil, nil
 }

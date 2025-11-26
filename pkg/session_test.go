@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/leanovate/gopter"
+	"github.com/leanovate/gopter/gen"
+	"github.com/leanovate/gopter/prop"
 )
 
 // Mock implementations for testing
@@ -649,4 +653,84 @@ func TestSessionManager_CleanupExpired(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when loading cleaned up session")
 	}
+}
+
+// Property-based tests
+
+// **Feature: optional-database, Property 7: SessionManager uses in-memory storage without database**
+// **Validates: Requirements 3.1**
+// For any SessionManager initialized with a no-op DatabaseManager, session operations (save, load, delete)
+// should succeed using in-memory storage without attempting database operations
+func TestProperty_SessionManagerInMemoryStorage(t *testing.T) {
+	parameters := gopter.DefaultTestParameters()
+	parameters.MinSuccessfulTests = 100
+	properties := gopter.NewProperties(parameters)
+
+	properties.Property("SessionManager uses in-memory storage when no database is available",
+		prop.ForAll(
+			func(userID string, tenantID string, dataKey string, dataValue string) bool {
+				// Create session manager with no-op database
+				config := DefaultSessionConfig()
+				config.EncryptionKey = generateEncryptionKey()
+
+				noopDB := NewNoopDatabaseManager()
+				sm, err := NewSessionManager(config, noopDB, nil)
+				if err != nil {
+					return false
+				}
+
+				ctx := &mockContext{
+					user:   &User{ID: userID},
+					tenant: &Tenant{ID: tenantID},
+				}
+
+				// Create a session
+				session, err := sm.Create(ctx)
+				if err != nil {
+					return false
+				}
+
+				// Verify session was created
+				if session.ID == "" {
+					return false
+				}
+
+				// Set data in session
+				session.Data[dataKey] = dataValue
+				err = sm.Save(ctx, session)
+				if err != nil {
+					return false
+				}
+
+				// Load session and verify data
+				loadedSession, err := sm.Load(ctx, session.ID)
+				if err != nil {
+					return false
+				}
+
+				if loadedSession.Data[dataKey] != dataValue {
+					return false
+				}
+
+				// Delete session
+				err = sm.Destroy(ctx, session.ID)
+				if err != nil {
+					return false
+				}
+
+				// Verify session is deleted
+				_, err = sm.Load(ctx, session.ID)
+				if err == nil {
+					return false // Should return error for deleted session
+				}
+
+				return true
+			},
+			gen.Identifier(),
+			gen.Identifier(),
+			gen.Identifier(),
+			gen.AnyString(),
+		))
+
+	properties.TestingRun(t, gopter.ConsoleReporter(false))
 }

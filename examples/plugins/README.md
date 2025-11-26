@@ -408,8 +408,6 @@ For better isolation, plugins can run as separate processes communicating via gR
 
 ## Further Reading
 
-- [Plugin System Design](../../../.kiro/specs/plugin-system/design.md)
-- [Plugin System Requirements](../../../.kiro/specs/plugin-system/requirements.md)
 - [Framework Documentation](../../docs/PLUGIN_SYSTEM.md)
 
 ## Contributing

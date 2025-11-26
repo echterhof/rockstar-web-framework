@@ -9,223 +9,349 @@ import (
 )
 
 func main() {
-	// Create a new middleware engine
-	middlewareEngine := pkg.NewMiddlewareEngine()
-
-	// Register logging middleware (before handler, high priority)
-	err := middlewareEngine.Register(pkg.MiddlewareConfig{
-		Name:     "logger",
-		Position: pkg.MiddlewarePositionBefore,
-		Priority: 100,
-		Enabled:  true,
-		Handler: func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			start := time.Now()
-			fmt.Printf("[Logger] Request started: %s %s\n",
-				ctx.Request().Method,
-				ctx.Request().URL.Path)
-
-			err := next(ctx)
-
-			duration := time.Since(start)
-			fmt.Printf("[Logger] Request completed in %v\n", duration)
-			return err
+	// ============================================================================
+	// Configuration Setup
+	// ============================================================================
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
 		},
-	})
+		DatabaseConfig: pkg.DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: "middleware_example.db",
+		},
+		CacheConfig: pkg.CacheConfig{
+			Type:       "memory",
+			MaxSize:    10 * 1024 * 1024,
+			DefaultTTL: 5 * time.Minute,
+		},
+		SessionConfig: pkg.SessionConfig{
+			StorageType:     pkg.SessionStorageCache, // Use cache instead of database
+			CookieName:      "rockstar_session",
+			SessionLifetime: 24 * time.Hour,
+			CleanupInterval: 15 * time.Minute,
+			CookieSecure:    false,
+			CookieHTTPOnly:  true,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
+		},
+	}
+
+	// ============================================================================
+	// Framework Initialization
+	// ============================================================================
+	app, err := pkg.New(config)
 	if err != nil {
-		log.Fatalf("Failed to register logger middleware: %v", err)
+		log.Fatalf("Failed to create framework: %v", err)
 	}
 
-	// Register authentication middleware (before handler, medium priority)
-	err = middlewareEngine.Register(pkg.MiddlewareConfig{
-		Name:     "auth",
-		Position: pkg.MiddlewarePositionBefore,
-		Priority: 50,
-		Enabled:  true,
-		Handler: func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			fmt.Println("[Auth] Checking authentication...")
+	// ============================================================================
+	// Global Middleware Registration
+	// ============================================================================
+	// Global middleware applies to all routes
+	// Middleware executes in the order they are registered
 
-			// Simulate authentication check
-			authHeader := ctx.GetHeader("Authorization")
-			if authHeader == "" {
-				fmt.Println("[Auth] No authorization header found")
-				return ctx.JSON(401, map[string]string{
-					"error": "Unauthorized",
-				})
-			}
+	// 1. Logging middleware - logs all requests
+	app.Use(loggingMiddleware)
 
-			fmt.Println("[Auth] Authentication successful")
-			return next(ctx)
-		},
-	})
-	if err != nil {
-		log.Fatalf("Failed to register auth middleware: %v", err)
-	}
+	// 2. Recovery middleware - recovers from panics
+	app.Use(recoveryMiddleware)
 
-	// Register response time middleware (after handler, high priority)
-	err = middlewareEngine.Register(pkg.MiddlewareConfig{
-		Name:     "response-time",
-		Position: pkg.MiddlewarePositionAfter,
-		Priority: 100,
-		Enabled:  true,
-		Handler: func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			start := time.Now()
-			err := next(ctx)
-			duration := time.Since(start)
+	// 3. CORS middleware - adds CORS headers
+	app.Use(corsMiddleware)
 
-			// Add response time header
-			ctx.SetHeader("X-Response-Time", duration.String())
-			fmt.Printf("[Response-Time] Added header: %v\n", duration)
-			return err
-		},
-	})
-	if err != nil {
-		log.Fatalf("Failed to register response-time middleware: %v", err)
-	}
+	// ============================================================================
+	// Route Registration
+	// ============================================================================
+	router := app.Router()
 
-	// Register CORS middleware (after handler, medium priority)
-	err = middlewareEngine.Register(pkg.MiddlewareConfig{
-		Name:     "cors",
-		Position: pkg.MiddlewarePositionAfter,
-		Priority: 50,
-		Enabled:  true,
-		Handler: func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			err := next(ctx)
+	// Route without additional middleware - uses only global middleware
+	router.GET("/api/public", publicHandler)
 
-			// Add CORS headers
-			ctx.SetHeader("Access-Control-Allow-Origin", "*")
-			ctx.SetHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
-			fmt.Println("[CORS] Added CORS headers")
-			return err
-		},
-	})
-	if err != nil {
-		log.Fatalf("Failed to register cors middleware: %v", err)
-	}
+	// Route with single middleware - authentication required
+	router.GET("/api/protected", protectedHandler, authMiddleware)
 
-	// List all registered middleware
-	fmt.Println("\n=== Registered Middleware ===")
-	for _, mw := range middlewareEngine.List() {
-		position := "before"
-		if mw.Position == pkg.MiddlewarePositionAfter {
-			position = "after"
-		}
-		fmt.Printf("- %s (position: %s, priority: %d, enabled: %v)\n",
-			mw.Name, position, mw.Priority, mw.Enabled)
-	}
+	// Route with multiple middleware - authentication + rate limiting
+	router.GET("/api/admin", adminHandler, authMiddleware, rateLimitMiddleware)
 
-	// Demonstrate dynamic middleware management
-	fmt.Println("\n=== Dynamic Middleware Management ===")
+	// ============================================================================
+	// Route Groups with Shared Middleware
+	// ============================================================================
+	// Create a route group for API v1 with shared middleware
+	apiV1 := router.Group("/api/v1", apiVersionMiddleware("v1"))
 
-	// Disable auth middleware
-	fmt.Println("Disabling auth middleware...")
-	middlewareEngine.Disable("auth")
+	// All routes in this group will have the apiVersionMiddleware applied
+	apiV1.GET("/users", usersHandler)
+	apiV1.GET("/posts", postsHandler)
 
-	// Change priority of logger
-	fmt.Println("Changing logger priority to 200...")
-	middlewareEngine.SetPriority("logger", 200)
+	// Create a route group for admin routes with authentication
+	adminGroup := router.Group("/admin", authMiddleware, adminCheckMiddleware)
 
-	// Change position of cors
-	fmt.Println("Moving cors to before position...")
-	middlewareEngine.SetPosition("cors", pkg.MiddlewarePositionBefore)
+	// All routes in this group require authentication and admin privileges
+	adminGroup.GET("/dashboard", dashboardHandler)
+	adminGroup.GET("/settings", settingsHandler)
 
-	// List middleware again
-	fmt.Println("\n=== Updated Middleware ===")
-	for _, mw := range middlewareEngine.List() {
-		position := "before"
-		if mw.Position == pkg.MiddlewarePositionAfter {
-			position = "after"
-		}
-		fmt.Printf("- %s (position: %s, priority: %d, enabled: %v)\n",
-			mw.Name, position, mw.Priority, mw.Enabled)
-	}
-
-	// Demonstrate middleware execution order
-	fmt.Println("\n=== Middleware Execution Order ===")
-	fmt.Println("Expected order:")
-	fmt.Println("1. Logger (before, priority 200)")
-	fmt.Println("2. CORS (before, priority 50)")
-	fmt.Println("3. Response-Time (after, priority 100)")
-	fmt.Println("4. Handler")
-	fmt.Println("5. Response-Time completes")
-	fmt.Println("6. CORS completes")
-	fmt.Println("7. Logger completes")
-
-	// Example of using middleware with router
-	fmt.Println("\n=== Integration with Router ===")
-
-	// Create router
-	router := pkg.NewRouter()
-
-	// Create a simple handler
-	handler := func(ctx pkg.Context) error {
-		fmt.Println("[Handler] Processing request...")
-		return ctx.JSON(200, map[string]string{
-			"message": "Hello from Rockstar Web Framework!",
-		})
-	}
-
-	// Register route with per-route middleware
-	router.GET("/api/users", handler,
-		func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			fmt.Println("[Route Middleware] Validating user access...")
-			return next(ctx)
-		},
+	// ============================================================================
+	// Middleware Chaining Example
+	// ============================================================================
+	// Demonstrate chaining multiple middleware functions
+	chainedMw := pkg.ChainMiddleware(
+		timingMiddleware,
+		validationMiddleware,
 	)
 
-	fmt.Println("Route registered with per-route middleware")
+	router.POST("/api/data", dataHandler, chainedMw)
 
-	// Demonstrate middleware helpers
-	fmt.Println("\n=== Middleware Helpers ===")
-
-	// ChainMiddleware example
-	mw1 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
-		fmt.Println("[Chain MW1] Before")
-		err := next(ctx)
-		fmt.Println("[Chain MW1] After")
-		return err
-	}
-
-	mw2 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
-		fmt.Println("[Chain MW2] Before")
-		err := next(ctx)
-		fmt.Println("[Chain MW2] After")
-		return err
-	}
-
-	chained := pkg.ChainMiddleware(mw1, mw2)
-	fmt.Println("Created chained middleware from mw1 and mw2")
-	_ = chained
-
-	// SkipMiddleware example
-	skipMw := pkg.SkipMiddleware(
+	// ============================================================================
+	// Conditional Middleware Example
+	// ============================================================================
+	// Skip authentication for health check endpoint
+	skipAuthMw := pkg.SkipMiddleware(
 		func(ctx pkg.Context) bool {
-			// Skip if path is /health
 			return ctx.Request().URL.Path == "/health"
 		},
-		func(ctx pkg.Context, next pkg.HandlerFunc) error {
-			fmt.Println("[Skip MW] This will be skipped for /health")
-			return next(ctx)
-		},
+		authMiddleware,
 	)
-	fmt.Println("Created conditional skip middleware")
-	_ = skipMw
 
-	// RecoverMiddleware example
-	recoverMw := pkg.RecoverMiddleware(func(ctx pkg.Context, recovered interface{}) error {
-		fmt.Printf("[Recover MW] Recovered from panic: %v\n", recovered)
-		return ctx.JSON(500, map[string]string{
-			"error": "Internal server error",
+	router.GET("/health", healthHandler, skipAuthMw)
+
+	// ============================================================================
+	// Server Startup
+	// ============================================================================
+	fmt.Println("🎸 Rockstar Web Framework - Middleware Example")
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+	fmt.Println("Server listening on: http://localhost:8080")
+	fmt.Println()
+	fmt.Println("Middleware Patterns Demonstrated:")
+	fmt.Println("  ✓ Global middleware (logging, recovery, CORS)")
+	fmt.Println("  ✓ Route-specific middleware (auth, rate limiting)")
+	fmt.Println("  ✓ Middleware groups (API versioning, admin routes)")
+	fmt.Println("  ✓ Middleware chaining (timing + validation)")
+	fmt.Println("  ✓ Conditional middleware (skip auth for health)")
+	fmt.Println()
+	fmt.Println("Try these commands:")
+	fmt.Println("  # Public endpoint (global middleware only)")
+	fmt.Println("  curl http://localhost:8080/api/public")
+	fmt.Println()
+	fmt.Println("  # Protected endpoint (requires auth)")
+	fmt.Println("  curl http://localhost:8080/api/protected")
+	fmt.Println("  curl -H 'Authorization: Bearer token123' http://localhost:8080/api/protected")
+	fmt.Println()
+	fmt.Println("  # Admin endpoint (requires auth + rate limit)")
+	fmt.Println("  curl -H 'Authorization: Bearer token123' http://localhost:8080/api/admin")
+	fmt.Println()
+	fmt.Println("  # Route group endpoints")
+	fmt.Println("  curl http://localhost:8080/api/v1/users")
+	fmt.Println("  curl -H 'Authorization: Bearer token123' http://localhost:8080/admin/dashboard")
+	fmt.Println()
+	fmt.Println("  # Chained middleware")
+	fmt.Println("  curl -X POST http://localhost:8080/api/data -d '{\"value\":\"test\"}'")
+	fmt.Println()
+	fmt.Println("  # Health check (skips auth)")
+	fmt.Println("  curl http://localhost:8080/health")
+	fmt.Println()
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+// ============================================================================
+// Global Middleware Functions
+// ============================================================================
+
+// loggingMiddleware logs all incoming requests
+func loggingMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	start := time.Now()
+
+	fmt.Printf("[%s] %s %s\n",
+		time.Now().Format("15:04:05"),
+		ctx.Request().Method,
+		ctx.Request().URL.Path,
+	)
+
+	err := next(ctx)
+
+	duration := time.Since(start)
+	fmt.Printf("  ⏱️  Completed in %v\n", duration)
+
+	return err
+}
+
+// recoveryMiddleware recovers from panics
+func recoveryMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("❌ Panic recovered: %v\n", r)
+			ctx.JSON(500, map[string]interface{}{
+				"error":   "Internal server error",
+				"message": "An unexpected error occurred",
+			})
+		}
+	}()
+
+	return next(ctx)
+}
+
+// corsMiddleware adds CORS headers to responses
+func corsMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	// Set CORS headers
+	ctx.SetHeader("Access-Control-Allow-Origin", "*")
+	ctx.SetHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	ctx.SetHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	// Handle preflight requests
+	if ctx.Request().Method == "OPTIONS" {
+		return ctx.String(204, "")
+	}
+
+	return next(ctx)
+}
+
+// ============================================================================
+// Route-Specific Middleware Functions
+// ============================================================================
+
+// authMiddleware checks for authentication
+func authMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	authHeader := ctx.GetHeader("Authorization")
+
+	if authHeader == "" {
+		return ctx.JSON(401, map[string]interface{}{
+			"error":   "Unauthorized",
+			"message": "Authorization header required",
 		})
-	})
-	fmt.Println("Created panic recovery middleware")
-	_ = recoverMw
+	}
 
-	fmt.Println("\n=== Middleware System Demo Complete ===")
-	fmt.Println("\nKey Features Demonstrated:")
-	fmt.Println("✓ Configurable middleware ordering (not static)")
-	fmt.Println("✓ Pre-processing middleware (before handler)")
-	fmt.Println("✓ Post-processing middleware (after handler)")
-	fmt.Println("✓ Dynamic middleware management (enable/disable/priority)")
-	fmt.Println("✓ Middleware helpers (chain, skip, recover)")
-	fmt.Println("✓ Integration with router")
+	// In production, validate the token here
+	fmt.Println("  🔐 Authentication successful")
+
+	return next(ctx)
+}
+
+// rateLimitMiddleware implements simple rate limiting
+func rateLimitMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	// In production, implement actual rate limiting logic
+	fmt.Println("  ⏳ Rate limit check passed")
+
+	return next(ctx)
+}
+
+// adminCheckMiddleware verifies admin privileges
+func adminCheckMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	// In production, check user roles/permissions
+	fmt.Println("  👑 Admin privileges verified")
+
+	return next(ctx)
+}
+
+// apiVersionMiddleware adds API version information
+func apiVersionMiddleware(version string) pkg.MiddlewareFunc {
+	return func(ctx pkg.Context, next pkg.HandlerFunc) error {
+		ctx.SetHeader("X-API-Version", version)
+		fmt.Printf("  📌 API Version: %s\n", version)
+		return next(ctx)
+	}
+}
+
+// timingMiddleware measures handler execution time
+func timingMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	start := time.Now()
+	err := next(ctx)
+	duration := time.Since(start)
+
+	ctx.SetHeader("X-Response-Time", duration.String())
+	fmt.Printf("  ⏱️  Handler execution: %v\n", duration)
+
+	return err
+}
+
+// validationMiddleware validates request data
+func validationMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+	// In production, implement actual validation logic
+	fmt.Println("  ✅ Request validation passed")
+
+	return next(ctx)
+}
+
+// ============================================================================
+// Handler Functions
+// ============================================================================
+
+// publicHandler handles public endpoint
+func publicHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Public endpoint - no authentication required",
+		"middleware": []string{"logging", "recovery", "cors"},
+	})
+}
+
+// protectedHandler handles protected endpoint
+func protectedHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Protected endpoint - authentication required",
+		"middleware": []string{"logging", "recovery", "cors", "auth"},
+	})
+}
+
+// adminHandler handles admin endpoint
+func adminHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Admin endpoint - authentication and rate limiting applied",
+		"middleware": []string{"logging", "recovery", "cors", "auth", "rateLimit"},
+	})
+}
+
+// usersHandler handles users endpoint in API v1 group
+func usersHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Users endpoint in API v1",
+		"middleware": []string{"logging", "recovery", "cors", "apiVersion"},
+	})
+}
+
+// postsHandler handles posts endpoint in API v1 group
+func postsHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Posts endpoint in API v1",
+		"middleware": []string{"logging", "recovery", "cors", "apiVersion"},
+	})
+}
+
+// dashboardHandler handles admin dashboard
+func dashboardHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Admin dashboard",
+		"middleware": []string{"logging", "recovery", "cors", "auth", "adminCheck"},
+	})
+}
+
+// settingsHandler handles admin settings
+func settingsHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Admin settings",
+		"middleware": []string{"logging", "recovery", "cors", "auth", "adminCheck"},
+	})
+}
+
+// dataHandler handles data endpoint with chained middleware
+func dataHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"message":    "Data endpoint with chained middleware",
+		"middleware": []string{"logging", "recovery", "cors", "timing", "validation"},
+	})
+}
+
+// healthHandler handles health check endpoint
+func healthHandler(ctx pkg.Context) error {
+	return ctx.JSON(200, map[string]interface{}{
+		"status":     "healthy",
+		"message":    "Health check endpoint - auth skipped",
+		"middleware": []string{"logging", "recovery", "cors"},
+	})
 }

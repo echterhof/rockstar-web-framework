@@ -26,17 +26,49 @@ const (
 
 // SessionConfig defines configuration for session management
 type SessionConfig struct {
-	StorageType     SessionStorageType `json:"storage_type"`
-	CookieName      string             `json:"cookie_name"`
-	CookiePath      string             `json:"cookie_path"`
-	CookieDomain    string             `json:"cookie_domain"`
-	CookieSecure    bool               `json:"cookie_secure"`
-	CookieHTTPOnly  bool               `json:"cookie_http_only"`
-	CookieSameSite  string             `json:"cookie_same_site"` // Strict, Lax, None
-	SessionLifetime time.Duration      `json:"session_lifetime"`
-	EncryptionKey   []byte             `json:"-"` // AES-256 key (32 bytes)
-	FilesystemPath  string             `json:"filesystem_path"`
-	CleanupInterval time.Duration      `json:"cleanup_interval"`
+	// StorageType specifies the session storage backend.
+	// Default: SessionStorageDatabase
+	StorageType SessionStorageType `json:"storage_type"`
+
+	// CookieName is the name of the session cookie.
+	// Default: "rockstar_session"
+	CookieName string `json:"cookie_name"`
+
+	// CookiePath is the path scope for the session cookie.
+	// Default: "/"
+	CookiePath string `json:"cookie_path"`
+
+	// CookieDomain is the domain scope for the session cookie.
+	// Default: ""
+	CookieDomain string `json:"cookie_domain"`
+
+	// CookieSecure indicates if the cookie should only be sent over HTTPS.
+	// Default: true
+	CookieSecure bool `json:"cookie_secure"`
+
+	// CookieHTTPOnly indicates if the cookie should be inaccessible to JavaScript.
+	// Default: true
+	CookieHTTPOnly bool `json:"cookie_http_only"`
+
+	// CookieSameSite specifies the SameSite attribute for the cookie (Strict, Lax, None).
+	// Default: "Lax"
+	CookieSameSite string `json:"cookie_same_site"`
+
+	// SessionLifetime is the duration before a session expires.
+	// Default: 24 hours
+	SessionLifetime time.Duration `json:"session_lifetime"`
+
+	// EncryptionKey is the AES-256 key (32 bytes) for encrypting session data.
+	// Required, no default
+	EncryptionKey []byte `json:"-"`
+
+	// FilesystemPath is the directory path for filesystem-based session storage.
+	// Default: "./sessions"
+	FilesystemPath string `json:"filesystem_path"`
+
+	// CleanupInterval is the interval for cleaning up expired sessions.
+	// Default: 1 hour
+	CleanupInterval time.Duration `json:"cleanup_interval"`
 }
 
 // DefaultSessionConfig returns default session configuration
@@ -57,13 +89,15 @@ func DefaultSessionConfig() *SessionConfig {
 
 // sessionManager implements the SessionManager interface
 type sessionManager struct {
-	config      *SessionConfig
-	db          DatabaseManager
-	cache       CacheManager
-	cipher      cipher.Block
-	mu          sync.RWMutex
-	sessions    map[string]*Session // In-memory cache for filesystem storage
-	stopCleanup chan struct{}
+	config        *SessionConfig
+	db            DatabaseManager
+	cache         CacheManager
+	cipher        cipher.Block
+	mu            sync.RWMutex
+	sessions      map[string]*Session // In-memory cache for filesystem storage
+	stopCleanup   chan struct{}
+	memoryStorage *inMemorySessionStorage // In-memory storage when no database is available
+	usingInMemory bool                    // Flag to indicate if using in-memory storage
 }
 
 // NewSessionManager creates a new session manager instance
@@ -71,6 +105,9 @@ func NewSessionManager(config *SessionConfig, db DatabaseManager, cache CacheMan
 	if config == nil {
 		config = DefaultSessionConfig()
 	}
+
+	// Apply defaults to ensure all fields have sensible values
+	config.ApplyDefaults()
 
 	// Validate encryption key
 	if len(config.EncryptionKey) != 32 {
@@ -92,10 +129,18 @@ func NewSessionManager(config *SessionConfig, db DatabaseManager, cache CacheMan
 		stopCleanup: make(chan struct{}),
 	}
 
-	// Create filesystem directory if using filesystem storage
-	if config.StorageType == SessionStorageFilesystem {
-		if err := os.MkdirAll(config.FilesystemPath, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create session directory: %w", err)
+	// Check if database is available and storage type is database
+	if isNoopDatabase(db) && config.StorageType == SessionStorageDatabase {
+		// Switch to in-memory storage when no database is available and database storage is requested
+		sm.memoryStorage = newInMemorySessionStorage()
+		sm.usingInMemory = true
+		fmt.Println("WARN: SessionManager using in-memory storage. Sessions will not persist across restarts.")
+	} else {
+		// Create filesystem directory if using filesystem storage
+		if config.StorageType == SessionStorageFilesystem {
+			if err := os.MkdirAll(config.FilesystemPath, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create session directory: %w", err)
+			}
 		}
 	}
 
@@ -330,6 +375,11 @@ func (sm *sessionManager) IsExpired(sessionID string) bool {
 
 // CleanupExpired removes expired sessions
 func (sm *sessionManager) CleanupExpired() error {
+	// Use in-memory storage cleanup if no database is available
+	if sm.usingInMemory {
+		return sm.memoryStorage.Cleanup()
+	}
+
 	switch sm.config.StorageType {
 	case SessionStorageDatabase:
 		if sm.db != nil {
@@ -348,6 +398,11 @@ func (sm *sessionManager) CleanupExpired() error {
 // Storage backend methods
 
 func (sm *sessionManager) saveToStorage(session *Session) error {
+	// Use in-memory storage if no database is available
+	if sm.usingInMemory {
+		return sm.memoryStorage.Save(session)
+	}
+
 	switch sm.config.StorageType {
 	case SessionStorageDatabase:
 		if sm.db == nil {
@@ -371,6 +426,11 @@ func (sm *sessionManager) saveToStorage(session *Session) error {
 }
 
 func (sm *sessionManager) loadFromStorage(sessionID string) (*Session, error) {
+	// Use in-memory storage if no database is available
+	if sm.usingInMemory {
+		return sm.memoryStorage.Load(sessionID)
+	}
+
 	switch sm.config.StorageType {
 	case SessionStorageDatabase:
 		if sm.db == nil {
@@ -401,6 +461,11 @@ func (sm *sessionManager) loadFromStorage(sessionID string) (*Session, error) {
 }
 
 func (sm *sessionManager) deleteFromStorage(sessionID string) error {
+	// Use in-memory storage if no database is available
+	if sm.usingInMemory {
+		return sm.memoryStorage.Delete(sessionID)
+	}
+
 	switch sm.config.StorageType {
 	case SessionStorageDatabase:
 		if sm.db == nil {

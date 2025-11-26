@@ -468,10 +468,11 @@ func (s *soapManager) ServeWSDL(ctx Context, service SOAPService) error {
 		return ctx.String(500, fmt.Sprintf("Failed to generate WSDL: %s", err.Error()))
 	}
 
-	// Set content type
-	ctx.SetHeader("Content-Type", "text/xml; charset=utf-8")
-
-	return ctx.String(200, wsdl)
+	// Set content type and write response
+	ctx.Response().SetContentType("text/xml; charset=utf-8")
+	ctx.Response().WriteHeader(200)
+	_, err = ctx.Response().Write([]byte(wsdl))
+	return err
 }
 
 // Use adds middleware to the SOAP manager

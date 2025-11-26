@@ -3,299 +3,288 @@ package main
 import (
 	"fmt"
 	"log"
-	"log/slog"
-	"os"
+	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-	fmt.Println("=== Rockstar Web Framework - Internationalization Example ===\n")
-
-	// Example 1: Basic i18n setup
-	fmt.Println("1. Basic I18n Setup")
-	basicExample()
-
-	// Example 2: Loading locale files
-	fmt.Println("\n2. Loading Locale Files")
-	localeFileExample()
-
-	// Example 3: Translation with parameters
-	fmt.Println("\n3. Translation with Parameters")
-	parameterExample()
-
-	// Example 4: Internationalized logging
-	fmt.Println("\n4. Internationalized Logging")
-	loggingExample()
-
-	// Example 5: Error messages with i18n
-	fmt.Println("\n5. Error Messages with I18n")
-	errorExample()
-
-	// Example 6: Multiple locales
-	fmt.Println("\n6. Multiple Locales")
-	multiLocaleExample()
-}
-
-func basicExample() {
-	// Create i18n manager with basic configuration
-	config := pkg.I18nConfig{
-		DefaultLocale:     "en",
-		FallbackToDefault: true,
-	}
-
-	manager, err := pkg.NewI18nManager(config)
-	if err != nil {
-		log.Fatalf("Failed to create i18n manager: %v", err)
-	}
-
-	// Add some translations manually
-	manager.LoadLocale("en", map[string]interface{}{
-		"greeting": "Hello, World!",
-		"farewell": "Goodbye!",
-	})
-
-	// Translate keys
-	fmt.Printf("  English greeting: %s\n", manager.Translate("greeting"))
-	fmt.Printf("  English farewell: %s\n", manager.Translate("farewell"))
-}
-
-func localeFileExample() {
-	// Create i18n manager that loads locale files from a directory
-	config := pkg.I18nConfig{
-		DefaultLocale:     "en",
-		LocalesDir:        "./examples", // Directory containing locales.en.yaml, locales.de.yaml
-		FallbackToDefault: true,
-	}
-
-	manager, err := pkg.NewI18nManager(config)
-	if err != nil {
-		log.Printf("  Note: Could not load locale files: %v\n", err)
-		log.Println("  Make sure locales.en.yaml and locales.de.yaml exist in ./examples/")
-		return
-	}
-
-	// Get available locales
-	locales := manager.GetSupportedLanguages()
-	fmt.Printf("  Available locales: %v\n", locales)
-
-	// Translate error messages
-	fmt.Printf("  Auth error (EN): %s\n", manager.Translate("error.authentication.failed"))
-
-	// Switch to German
-	if err := manager.SetLanguage("de"); err == nil {
-		fmt.Printf("  Auth error (DE): %s\n", manager.Translate("error.authentication.failed"))
-	}
-}
-
-func parameterExample() {
-	config := pkg.I18nConfig{
-		DefaultLocale: "en",
-	}
-
-	manager, err := pkg.NewI18nManager(config)
-	if err != nil {
-		log.Fatalf("Failed to create i18n manager: %v", err)
-	}
-
-	// Add translations with placeholders
-	manager.LoadLocale("en", map[string]interface{}{
-		"greeting": map[string]interface{}{
-			"user": "Hello, {{name}}! Welcome back.",
+	// Configuration with locale file loading
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
 		},
-		"rate": map[string]interface{}{
-			"limit": "Rate limit exceeded: {{limit}} requests per {{window}}",
+		I18nConfig: pkg.I18nConfig{
+			DefaultLocale:     "en",
+			LocalesDir:        "./examples/locales", // Load locale files from this directory
+			SupportedLocales:  []string{"en", "de"},
+			FallbackToDefault: true,
 		},
-	})
-
-	// Translate with parameters
-	greeting := manager.Translate("greeting.user", map[string]interface{}{
-		"name": "Alice",
-	})
-	fmt.Printf("  Personalized greeting: %s\n", greeting)
-
-	rateLimit := manager.Translate("rate.limit", map[string]interface{}{
-		"limit":  100,
-		"window": "minute",
-	})
-	fmt.Printf("  Rate limit message: %s\n", rateLimit)
-}
-
-func loggingExample() {
-	config := pkg.I18nConfig{
-		DefaultLocale: "en",
 	}
 
-	manager, err := pkg.NewI18nManager(config)
+	// Create framework instance
+	app, err := pkg.New(config)
 	if err != nil {
-		log.Fatalf("Failed to create i18n manager: %v", err)
+		log.Fatalf("Failed to create framework: %v", err)
 	}
 
-	// Add log message translations
-	manager.LoadLocale("en", map[string]interface{}{
-		"log": map[string]interface{}{
-			"server": map[string]interface{}{
-				"starting": "Server starting on {{address}}",
+	// Get router
+	router := app.Router()
+
+	// Route 1: Get welcome message in current locale
+	router.GET("/welcome", func(ctx pkg.Context) error {
+		// Get i18n manager from context
+		i18n := ctx.I18n()
+
+		// Translate welcome message
+		message := i18n.Translate("message.welcome")
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": message,
+			"locale":  i18n.GetLanguage(),
+		})
+	})
+
+	// Route 2: Get welcome message in specific locale
+	router.GET("/welcome/:locale", func(ctx pkg.Context) error {
+		locale := ctx.Params()["locale"]
+		i18n := ctx.I18n()
+
+		// Translate with specific locale
+		message := i18n.Translate("message.welcome")
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": message,
+			"locale":  locale,
+		})
+	})
+
+	// Route 3: Demonstrate translation with parameters
+	router.GET("/error/missing-field/:field", func(ctx pkg.Context) error {
+		field := ctx.Params()["field"]
+		i18n := ctx.I18n()
+
+		// Translate error message with parameter
+		message := i18n.Translate("error.validation.missing_field", map[string]interface{}{
+			"field": field,
+		})
+
+		return ctx.JSON(400, map[string]interface{}{
+			"error":  message,
+			"locale": i18n.GetLanguage(),
+		})
+	})
+
+	// Route 4: Demonstrate rate limit message with multiple parameters
+	router.GET("/error/rate-limit", func(ctx pkg.Context) error {
+		i18n := ctx.I18n()
+
+		// Translate with multiple parameters
+		message := i18n.Translate("error.request.rate_limit_exceeded", map[string]interface{}{
+			"limit":  100,
+			"window": "minute",
+		})
+
+		return ctx.JSON(429, map[string]interface{}{
+			"error":  message,
+			"locale": i18n.GetLanguage(),
+		})
+	})
+
+	// Route 5: Switch locale dynamically
+	router.POST("/locale/:locale", func(ctx pkg.Context) error {
+		locale := ctx.Params()["locale"]
+		i18n := ctx.I18n()
+
+		// Set language
+		if err := i18n.SetLanguage(locale); err != nil {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": fmt.Sprintf("Unsupported locale: %s", locale),
+			})
+		}
+
+		// Return confirmation in new locale
+		message := i18n.Translate("message.success.updated")
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":    message,
+			"locale":     i18n.GetLanguage(),
+			"locale_set": locale,
+		})
+	})
+
+	// Route 6: Get all supported locales
+	router.GET("/locales", func(ctx pkg.Context) error {
+		i18n := ctx.I18n()
+
+		return ctx.JSON(200, map[string]interface{}{
+			"supported_locales": i18n.GetSupportedLanguages(),
+			"current_locale":    i18n.GetLanguage(),
+		})
+	})
+
+	// Route 7: Demonstrate fallback behavior
+	router.GET("/fallback/:locale", func(ctx pkg.Context) error {
+		locale := ctx.Params()["locale"]
+		i18n := ctx.I18n()
+
+		// Try to translate a key that might not exist in the requested locale
+		// This will fallback to the default locale (English)
+		// First set the language, then translate
+		originalLang := i18n.GetLanguage()
+		i18n.SetLanguage(locale)
+		message := i18n.Translate("message.welcome")
+		i18n.SetLanguage(originalLang)
+
+		// Check if the locale is actually supported
+		supportedLangs := i18n.GetSupportedLanguages()
+		isSupported := false
+		for _, lang := range supportedLangs {
+			if lang == locale {
+				isSupported = true
+				break
+			}
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":          message,
+			"requested_locale": locale,
+			"locale_supported": isSupported,
+			"fallback_used":    !isSupported,
+		})
+	})
+
+	// Route 8: Demonstrate all error categories
+	router.GET("/errors/:category", func(ctx pkg.Context) error {
+		category := ctx.Params()["category"]
+		i18n := ctx.I18n()
+
+		var errors []map[string]string
+
+		switch category {
+		case "authentication":
+			errors = []map[string]string{
+				{"key": "error.authentication.failed", "message": i18n.Translate("error.authentication.failed")},
+				{"key": "error.authentication.invalid_token", "message": i18n.Translate("error.authentication.invalid_token")},
+				{"key": "error.authentication.token_expired", "message": i18n.Translate("error.authentication.token_expired")},
+				{"key": "error.authentication.unauthorized", "message": i18n.Translate("error.authentication.unauthorized")},
+			}
+		case "validation":
+			errors = []map[string]string{
+				{"key": "error.validation.failed", "message": i18n.Translate("error.validation.failed")},
+				{"key": "error.validation.invalid_input", "message": i18n.Translate("error.validation.invalid_input")},
+			}
+		case "database":
+			errors = []map[string]string{
+				{"key": "error.database.connection", "message": i18n.Translate("error.database.connection")},
+				{"key": "error.database.record_not_found", "message": i18n.Translate("error.database.record_not_found")},
+			}
+		default:
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Invalid category. Use: authentication, validation, or database",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"category": category,
+			"locale":   i18n.GetLanguage(),
+			"errors":   errors,
+		})
+	})
+
+	// Route 9: Demonstrate log messages
+	router.GET("/logs", func(ctx pkg.Context) error {
+		i18n := ctx.I18n()
+
+		logs := []map[string]string{
+			{
+				"key":     "log.server.starting",
+				"message": i18n.Translate("log.server.starting", map[string]interface{}{"address": "localhost:8080"}),
 			},
-			"request": map[string]interface{}{
-				"completed": "Request completed: {{method}} {{path}} - {{status}}",
+			{
+				"key": "log.request.completed",
+				"message": i18n.Translate("log.request.completed", map[string]interface{}{
+					"method":   "GET",
+					"path":     "/api/users",
+					"status":   200,
+					"duration": 45,
+				}),
 			},
-		},
-	})
-
-	// Get internationalized logger
-	logger := pkg.NewI18nLogger(manager, nil)
-
-	// Log messages with i18n
-	fmt.Println("  Logging with i18n:")
-	logger.Info("log.server.starting", map[string]interface{}{
-		"address": "localhost:8080",
-	})
-
-	logger.Info("log.request.completed", map[string]interface{}{
-		"method": "GET",
-		"path":   "/api/users",
-		"status": 200,
-	})
-
-	// Log with additional attributes
-	attrs := []slog.Attr{
-		slog.String("request_id", "req-12345"),
-		slog.String("tenant_id", "tenant-abc"),
-	}
-	logger.InfoWithAttrs("log.request.completed", attrs, map[string]interface{}{
-		"method": "POST",
-		"path":   "/api/users",
-		"status": 201,
-	})
-}
-
-func errorExample() {
-	config := pkg.I18nConfig{
-		DefaultLocale: "en",
-	}
-
-	manager, err := pkg.NewI18nManager(config)
-	if err != nil {
-		log.Fatalf("Failed to create i18n manager: %v", err)
-	}
-
-	// Add error message translations
-	manager.LoadLocale("en", map[string]interface{}{
-		"error": map[string]interface{}{
-			"validation": map[string]interface{}{
-				"missing_field": "Required field '{{field}}' is missing",
+			{
+				"key":     "log.cache.hit",
+				"message": i18n.Translate("log.cache.hit", map[string]interface{}{"key": "user:123"}),
 			},
-			"database": map[string]interface{}{
-				"query": "Database query failed: {{operation}}",
-			},
-		},
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"locale": i18n.GetLanguage(),
+			"logs":   logs,
+		})
 	})
 
-	// Create framework errors with i18n
-	validationError := pkg.NewValidationError("Validation failed", "email")
-	validationError.I18nKey = "error.validation.missing_field"
-	validationError.I18nParams = map[string]interface{}{"field": "email"}
+	// Route 10: Demonstrate locale detection from Accept-Language header
+	router.GET("/auto-locale", func(ctx pkg.Context) error {
+		// Get Accept-Language header
+		acceptLang := ctx.GetHeader("Accept-Language")
+		i18n := ctx.I18n()
 
-	// Translate error message
-	translatedMsg := manager.Translate(validationError.I18nKey, validationError.I18nParams)
-	fmt.Printf("  Validation error: %s\n", translatedMsg)
+		// Simple locale detection (in production, use a proper parser)
+		detectedLocale := "en" // default
+		if len(acceptLang) >= 2 {
+			lang := acceptLang[:2]
+			// Check if language is supported
+			supportedLangs := i18n.GetSupportedLanguages()
+			for _, supported := range supportedLangs {
+				if supported == lang {
+					detectedLocale = lang
+					break
+				}
+			}
+		}
 
-	// Database error example
-	dbError := pkg.NewDatabaseError("Query failed", "SELECT")
-	dbError.I18nKey = "error.database.query"
-	dbError.I18nParams = map[string]interface{}{"operation": "SELECT"}
+		// Get message in detected locale
+		originalLang := i18n.GetLanguage()
+		i18n.SetLanguage(detectedLocale)
+		message := i18n.Translate("message.welcome")
+		i18n.SetLanguage(originalLang)
 
-	translatedMsg = manager.Translate(dbError.I18nKey, dbError.I18nParams)
-	fmt.Printf("  Database error: %s\n", translatedMsg)
-}
-
-func multiLocaleExample() {
-	config := pkg.I18nConfig{
-		DefaultLocale:     "en",
-		SupportedLocales:  []string{"en", "de", "fr"},
-		FallbackToDefault: true,
-	}
-
-	manager, err := pkg.NewI18nManager(config)
-	if err != nil {
-		log.Fatalf("Failed to create i18n manager: %v", err)
-	}
-
-	// Add translations for multiple locales
-	manager.LoadLocale("en", map[string]interface{}{
-		"welcome": "Welcome to Rockstar Web Framework",
-	})
-	manager.LoadLocale("de", map[string]interface{}{
-		"welcome": "Willkommen beim Rockstar Web Framework",
-	})
-	manager.LoadLocale("fr", map[string]interface{}{
-		"welcome": "Bienvenue dans le Rockstar Web Framework",
+		return ctx.JSON(200, map[string]interface{}{
+			"accept_language": acceptLang,
+			"detected_locale": detectedLocale,
+			"message":         message,
+		})
 	})
 
-	// Demonstrate translation in different locales
-	locales := []string{"en", "de", "fr"}
-	for _, locale := range locales {
-		manager.SetLanguage(locale)
-		fmt.Printf("  [%s] %s\n", locale, manager.Translate("welcome"))
+	// Startup message
+	fmt.Printf("🎸 Rockstar Web Framework - Internationalization Example\n")
+	fmt.Printf("=========================================================\n\n")
+	fmt.Printf("Listening on :8080\n\n")
+	fmt.Printf("Available endpoints:\n")
+	fmt.Printf("  GET  /welcome                    - Get welcome message in current locale\n")
+	fmt.Printf("  GET  /welcome/:locale            - Get welcome message in specific locale (en, de)\n")
+	fmt.Printf("  GET  /error/missing-field/:field - Demonstrate parameterized error message\n")
+	fmt.Printf("  GET  /error/rate-limit           - Demonstrate multi-parameter error message\n")
+	fmt.Printf("  POST /locale/:locale             - Switch current locale\n")
+	fmt.Printf("  GET  /locales                    - Get all supported locales\n")
+	fmt.Printf("  GET  /fallback/:locale           - Demonstrate fallback behavior\n")
+	fmt.Printf("  GET  /errors/:category           - Get error messages by category\n")
+	fmt.Printf("  GET  /logs                       - Demonstrate log message translation\n")
+	fmt.Printf("  GET  /auto-locale                - Demonstrate Accept-Language header detection\n\n")
+	fmt.Printf("Examples:\n")
+	fmt.Printf("  curl http://localhost:8080/welcome\n")
+	fmt.Printf("  curl http://localhost:8080/welcome/de\n")
+	fmt.Printf("  curl http://localhost:8080/error/missing-field/email\n")
+	fmt.Printf("  curl -X POST http://localhost:8080/locale/de\n")
+	fmt.Printf("  curl http://localhost:8080/locales\n")
+	fmt.Printf("  curl http://localhost:8080/fallback/fr\n")
+	fmt.Printf("  curl http://localhost:8080/errors/authentication\n")
+	fmt.Printf("  curl -H \"Accept-Language: de\" http://localhost:8080/auto-locale\n\n")
+
+	// Start server
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
-
-	// Demonstrate fallback behavior
-	fmt.Println("\n  Fallback behavior:")
-	manager.SetLanguage("en")
-	manager.LoadLocale("en", map[string]interface{}{
-		"only": map[string]interface{}{
-			"english": "This is only in English",
-		},
-	})
-
-	// Try to get translation in German (should fallback to English)
-	manager.SetLanguage("de")
-	fmt.Printf("  [de] %s (fallback to en)\n", manager.Translate("only.english"))
-}
-
-// Example of integrating i18n with a web handler
-func exampleHandler() {
-	// This would typically be called within a request handler
-	config := pkg.I18nConfig{
-		DefaultLocale: "en",
-		LocalesDir:    "./locales",
-	}
-
-	manager, _ := pkg.NewI18nManager(config)
-
-	// Detect user's preferred language from request headers
-	// (In real code, you'd get this from Accept-Language header)
-	userLocale := "de"
-	manager.SetLanguage(userLocale)
-
-	// Use i18n for response messages
-	successMsg := manager.Translate("message.success.created")
-	fmt.Printf("\n  API Response: %s\n", successMsg)
-
-	// Use i18n for error messages
-	errorMsg := manager.Translate("error.validation.failed")
-	fmt.Printf("  API Error: %s\n", errorMsg)
-}
-
-// Example of using i18n with the context
-func exampleWithContext() {
-	fmt.Println("\n7. I18n with Context")
-
-	// In a real application, the i18n manager would be accessible through the context
-	// ctx.I18n().Translate("key")
-	// ctx.Logger().Info("log.key", params)
-
-	fmt.Println("  In a real handler, you would access i18n through:")
-	fmt.Println("    - ctx.I18n().Translate(\"error.auth.failed\")")
-	fmt.Println("    - ctx.Logger().Info(\"log.request.completed\", params)")
-}
-
-func init() {
-	// Configure slog for better output
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}
-	handler := slog.NewTextHandler(os.Stdout, opts)
-	slog.SetDefault(slog.New(handler))
 }

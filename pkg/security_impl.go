@@ -23,6 +23,8 @@ type securityManagerImpl struct {
 	csrfTokens    map[string]time.Time // token -> expiration time
 	encryptionKey []byte
 	jwtSecret     []byte
+	tokenStorage  *inMemoryTokenStorage     // In-memory token storage when no database
+	rateLimits    *inMemoryRateLimitStorage // In-memory rate limit storage when no database
 }
 
 // SecurityConfig holds security configuration
@@ -49,13 +51,24 @@ func NewSecurityManager(db DatabaseManager, config SecurityConfig) (SecurityMana
 	// Decode JWT secret
 	jwtSecret := []byte(config.JWTSecret)
 
-	return &securityManagerImpl{
+	sm := &securityManagerImpl{
 		db:            db,
 		config:        config,
 		csrfTokens:    make(map[string]time.Time),
 		encryptionKey: encKey,
 		jwtSecret:     jwtSecret,
-	}, nil
+	}
+
+	// Check if database is available and configure storage accordingly
+	if isNoopDatabase(db) {
+		// Use in-memory storage when no database is available
+		sm.tokenStorage = newInMemoryTokenStorage()
+		sm.rateLimits = newInMemoryRateLimitStorage()
+		fmt.Println("WARN: SecurityManager using in-memory token storage. Tokens will not persist across restarts.")
+		fmt.Println("WARN: SecurityManager using in-memory rate limiting. Rate limits will not persist across restarts.")
+	}
+
+	return sm, nil
 }
 
 // DefaultSecurityConfig returns default security configuration
@@ -774,8 +787,16 @@ func (s *securityManagerImpl) CheckRateLimit(ctx Context, resource string) error
 	limit := 100
 	window := time.Minute
 
-	// Check if rate limit is exceeded
-	allowed, err := s.db.CheckRateLimit(rateLimitKey, limit, window)
+	var allowed bool
+	var err error
+
+	// Use in-memory storage if no database is available
+	if s.rateLimits != nil {
+		allowed, err = s.rateLimits.CheckRateLimit(rateLimitKey, limit, window)
+	} else {
+		allowed, err = s.db.CheckRateLimit(rateLimitKey, limit, window)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to check rate limit: %w", err)
 	}
@@ -791,7 +812,13 @@ func (s *securityManagerImpl) CheckRateLimit(ctx Context, resource string) error
 	}
 
 	// Increment rate limit counter
-	if err := s.db.IncrementRateLimit(rateLimitKey, window); err != nil {
+	if s.rateLimits != nil {
+		err = s.rateLimits.IncrementRateLimit(rateLimitKey, window)
+	} else {
+		err = s.db.IncrementRateLimit(rateLimitKey, window)
+	}
+
+	if err != nil {
 		return fmt.Errorf("failed to increment rate limit: %w", err)
 	}
 
@@ -810,8 +837,16 @@ func (s *securityManagerImpl) CheckGlobalRateLimit(ctx Context) error {
 	limit := 1000
 	window := time.Hour
 
-	// Check if rate limit is exceeded
-	allowed, err := s.db.CheckRateLimit(rateLimitKey, limit, window)
+	var allowed bool
+	var err error
+
+	// Use in-memory storage if no database is available
+	if s.rateLimits != nil {
+		allowed, err = s.rateLimits.CheckRateLimit(rateLimitKey, limit, window)
+	} else {
+		allowed, err = s.db.CheckRateLimit(rateLimitKey, limit, window)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to check global rate limit: %w", err)
 	}
@@ -827,7 +862,13 @@ func (s *securityManagerImpl) CheckGlobalRateLimit(ctx Context) error {
 	}
 
 	// Increment rate limit counter
-	if err := s.db.IncrementRateLimit(rateLimitKey, window); err != nil {
+	if s.rateLimits != nil {
+		err = s.rateLimits.IncrementRateLimit(rateLimitKey, window)
+	} else {
+		err = s.db.IncrementRateLimit(rateLimitKey, window)
+	}
+
+	if err != nil {
 		return fmt.Errorf("failed to increment global rate limit: %w", err)
 	}
 

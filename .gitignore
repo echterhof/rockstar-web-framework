@@ -46,8 +46,14 @@ config.yml
 
 # Database files
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
+
+# TLS certificates (auto-generated for examples)
+*.pem
+*.crt
+*.key
 
 # Temporary files
 tmp/

@@ -171,13 +171,36 @@ type Event struct {
 
 // PluginPermissions defines what operations a plugin is allowed to perform
 type PluginPermissions struct {
-	AllowDatabase     bool
-	AllowCache        bool
-	AllowConfig       bool
-	AllowRouter       bool
-	AllowFileSystem   bool
-	AllowNetwork      bool
-	AllowExec         bool
+	// AllowDatabase grants permission to access the database.
+	// Default: false
+	AllowDatabase bool
+
+	// AllowCache grants permission to access the cache.
+	// Default: false
+	AllowCache bool
+
+	// AllowConfig grants permission to access configuration.
+	// Default: false
+	AllowConfig bool
+
+	// AllowRouter grants permission to modify routing.
+	// Default: false
+	AllowRouter bool
+
+	// AllowFileSystem grants permission to access the file system.
+	// Default: false
+	AllowFileSystem bool
+
+	// AllowNetwork grants permission to make network requests.
+	// Default: false
+	AllowNetwork bool
+
+	// AllowExec grants permission to execute external commands.
+	// Default: false
+	AllowExec bool
+
+	// CustomPermissions provides additional custom permission flags.
+	// Default: empty map
 	CustomPermissions map[string]bool
 }
 

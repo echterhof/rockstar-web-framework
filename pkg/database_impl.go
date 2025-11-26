@@ -52,8 +52,14 @@ func (dm *databaseManager) Connect(config DatabaseConfig) error {
 		return fmt.Errorf("failed to build DSN: %w", err)
 	}
 
+	// Map driver name to actual registered driver name
+	driverName := config.Driver
+	if driverName == "sqlite" {
+		driverName = "sqlite3"
+	}
+
 	// Open database connection
-	db, err := sql.Open(config.Driver, dsn)
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -244,6 +250,13 @@ func (dm *databaseManager) Stats() DatabaseStats {
 		MaxIdleClosed:     stats.MaxIdleClosed,
 		MaxLifetimeClosed: stats.MaxLifetimeClosed,
 	}
+}
+
+// IsConnected returns true if a real database connection exists
+func (dm *databaseManager) IsConnected() bool {
+	dm.mutex.RLock()
+	defer dm.mutex.RUnlock()
+	return dm.db != nil
 }
 
 // Query executes a query that returns rows

@@ -140,6 +140,9 @@ func (m *pluginManagerImpl) SetErrorThreshold(threshold int64, autoDisable bool)
 func (m *pluginManagerImpl) LoadPlugin(path string, config PluginConfig) error {
 	startTime := time.Now()
 
+	// Apply defaults to config before using it
+	config.ApplyDefaults()
+
 	// Check if enabled flag is set
 	if !config.Enabled {
 		if m.logger != nil {

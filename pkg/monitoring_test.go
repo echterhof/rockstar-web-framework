@@ -1047,3 +1047,208 @@ func TestStopWithOptimizationEnabled(t *testing.T) {
 		t.Fatalf("Failed to stop manager on second cycle: %v", err)
 	}
 }
+
+// TestMonitoringConfigApplyDefaults tests that ApplyDefaults sets correct default values
+// Requirements: 2.2, 5.1, 5.2, 5.3, 5.4, 5.5
+func TestMonitoringConfigApplyDefaults(t *testing.T) {
+	config := MonitoringConfig{}
+	config.ApplyDefaults()
+
+	// Test MetricsPort defaults to 9090
+	if config.MetricsPort != 9090 {
+		t.Errorf("Expected MetricsPort to default to 9090, got %d", config.MetricsPort)
+	}
+
+	// Test PprofPort defaults to 6060
+	if config.PprofPort != 6060 {
+		t.Errorf("Expected PprofPort to default to 6060, got %d", config.PprofPort)
+	}
+
+	// Test SNMPPort defaults to 161
+	if config.SNMPPort != 161 {
+		t.Errorf("Expected SNMPPort to default to 161, got %d", config.SNMPPort)
+	}
+
+	// Test SNMPCommunity defaults to "public"
+	if config.SNMPCommunity != "public" {
+		t.Errorf("Expected SNMPCommunity to default to 'public', got %s", config.SNMPCommunity)
+	}
+
+	// Test OptimizationInterval defaults to 5 minutes
+	expectedInterval := 5 * time.Minute
+	if config.OptimizationInterval != expectedInterval {
+		t.Errorf("Expected OptimizationInterval to default to %v, got %v", expectedInterval, config.OptimizationInterval)
+	}
+}
+
+// TestMonitoringConfigApplyDefaultsPreservesUserValues tests that user-provided values are preserved
+// Requirements: 8.3, 8.4
+func TestMonitoringConfigApplyDefaultsPreservesUserValues(t *testing.T) {
+	config := MonitoringConfig{
+		MetricsPort:          8080,
+		PprofPort:            7070,
+		SNMPPort:             162,
+		SNMPCommunity:        "private",
+		OptimizationInterval: 10 * time.Minute,
+	}
+
+	config.ApplyDefaults()
+
+	// Verify user values are preserved
+	if config.MetricsPort != 8080 {
+		t.Errorf("Expected MetricsPort to remain 8080, got %d", config.MetricsPort)
+	}
+
+	if config.PprofPort != 7070 {
+		t.Errorf("Expected PprofPort to remain 7070, got %d", config.PprofPort)
+	}
+
+	if config.SNMPPort != 162 {
+		t.Errorf("Expected SNMPPort to remain 162, got %d", config.SNMPPort)
+	}
+
+	if config.SNMPCommunity != "private" {
+		t.Errorf("Expected SNMPCommunity to remain 'private', got %s", config.SNMPCommunity)
+	}
+
+	if config.OptimizationInterval != 10*time.Minute {
+		t.Errorf("Expected OptimizationInterval to remain 10m, got %v", config.OptimizationInterval)
+	}
+}
+
+// TestMonitoringConfigApplyDefaultsPartialConfig tests defaults with partial configuration
+// Requirements: 2.2, 5.1, 5.2, 5.3, 5.4, 5.5, 8.3, 8.4
+func TestMonitoringConfigApplyDefaultsPartialConfig(t *testing.T) {
+	config := MonitoringConfig{
+		MetricsPort:   8080,     // User-provided
+		SNMPCommunity: "custom", // User-provided
+		// Other fields are zero values
+	}
+
+	config.ApplyDefaults()
+
+	// User values should be preserved
+	if config.MetricsPort != 8080 {
+		t.Errorf("Expected MetricsPort to remain 8080, got %d", config.MetricsPort)
+	}
+
+	if config.SNMPCommunity != "custom" {
+		t.Errorf("Expected SNMPCommunity to remain 'custom', got %s", config.SNMPCommunity)
+	}
+
+	// Zero values should get defaults
+	if config.PprofPort != 6060 {
+		t.Errorf("Expected PprofPort to default to 6060, got %d", config.PprofPort)
+	}
+
+	if config.SNMPPort != 161 {
+		t.Errorf("Expected SNMPPort to default to 161, got %d", config.SNMPPort)
+	}
+
+	if config.OptimizationInterval != 5*time.Minute {
+		t.Errorf("Expected OptimizationInterval to default to 5m, got %v", config.OptimizationInterval)
+	}
+}
+
+// TestNewMonitoringManagerAppliesDefaults tests that NewMonitoringManager applies defaults
+// Requirements: 2.2, 5.5
+func TestNewMonitoringManagerAppliesDefaults(t *testing.T) {
+	config := MonitoringConfig{
+		// All zero values
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	manager := NewMonitoringManager(config, metrics, nil, nil)
+
+	retrievedConfig := manager.GetConfig()
+
+	// Verify defaults were applied
+	if retrievedConfig.MetricsPort != 9090 {
+		t.Errorf("Expected MetricsPort to default to 9090, got %d", retrievedConfig.MetricsPort)
+	}
+
+	if retrievedConfig.PprofPort != 6060 {
+		t.Errorf("Expected PprofPort to default to 6060, got %d", retrievedConfig.PprofPort)
+	}
+
+	if retrievedConfig.SNMPPort != 161 {
+		t.Errorf("Expected SNMPPort to default to 161, got %d", retrievedConfig.SNMPPort)
+	}
+
+	if retrievedConfig.SNMPCommunity != "public" {
+		t.Errorf("Expected SNMPCommunity to default to 'public', got %s", retrievedConfig.SNMPCommunity)
+	}
+
+	if retrievedConfig.OptimizationInterval != 5*time.Minute {
+		t.Errorf("Expected OptimizationInterval to default to 5m, got %v", retrievedConfig.OptimizationInterval)
+	}
+}
+
+// TestSetConfigAppliesDefaults tests that SetConfig applies defaults
+// Requirements: 2.2, 5.5
+func TestSetConfigAppliesDefaults(t *testing.T) {
+	initialConfig := MonitoringConfig{
+		MetricsPort: 8080,
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	manager := NewMonitoringManager(initialConfig, metrics, nil, nil)
+
+	// Set new config with zero values
+	newConfig := MonitoringConfig{
+		EnableMetrics: true,
+		// Other fields are zero values
+	}
+
+	err := manager.SetConfig(newConfig)
+	if err != nil {
+		t.Fatalf("Failed to set config: %v", err)
+	}
+
+	retrievedConfig := manager.GetConfig()
+
+	// Verify defaults were applied
+	if retrievedConfig.MetricsPort != 9090 {
+		t.Errorf("Expected MetricsPort to default to 9090, got %d", retrievedConfig.MetricsPort)
+	}
+
+	if retrievedConfig.OptimizationInterval != 5*time.Minute {
+		t.Errorf("Expected OptimizationInterval to default to 5m, got %v", retrievedConfig.OptimizationInterval)
+	}
+}
+
+// TestOptimizationWithZeroIntervalUsesDefault tests that ticker creation with zero interval uses default
+// Requirements: 2.2, 5.5
+func TestOptimizationWithZeroIntervalUsesDefault(t *testing.T) {
+	config := MonitoringConfig{
+		EnableOptimization:   true,
+		OptimizationInterval: 0, // Zero value
+	}
+
+	metrics := &mockMetricsCollectorForMonitoring{}
+	logger := &mockLogger{}
+	manager := NewMonitoringManager(config, metrics, nil, logger)
+
+	// Verify config has default applied
+	retrievedConfig := manager.GetConfig()
+	if retrievedConfig.OptimizationInterval != 5*time.Minute {
+		t.Errorf("Expected OptimizationInterval to default to 5m, got %v", retrievedConfig.OptimizationInterval)
+	}
+
+	// Start manager with optimization enabled
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop()
+
+	// Wait for optimization to run at least once
+	// With 5 minute default, we won't wait that long, but we can verify it doesn't panic
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify optimization stats exist (manager started successfully)
+	stats := manager.GetOptimizationStats()
+	if stats == nil {
+		t.Error("Expected non-nil optimization stats")
+	}
+}

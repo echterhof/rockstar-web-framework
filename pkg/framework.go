@@ -88,6 +88,13 @@ func New(config FrameworkConfig) (*Framework, error) {
 		startupHooks:     make([]func(ctx context.Context) error, 0),
 	}
 
+	// Apply defaults to all configuration structures before using them
+	config.ServerConfig.ApplyDefaults()
+	config.DatabaseConfig.ApplyDefaults()
+	config.CacheConfig.ApplyDefaults()
+	config.SessionConfig.ApplyDefaults()
+	config.MonitoringConfig.ApplyDefaults()
+
 	// Initialize configuration manager
 	f.config = NewConfigManager()
 
@@ -105,10 +112,17 @@ func New(config FrameworkConfig) (*Framework, error) {
 	}
 	f.i18n = i18nMgr
 
-	// Initialize database manager
-	dbMgr := NewDatabaseManager()
-	if err := dbMgr.Connect(config.DatabaseConfig); err != nil {
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	// Initialize database manager conditionally
+	var dbMgr DatabaseManager
+	if isDatabaseConfigured(config.DatabaseConfig) {
+		dbMgr = NewDatabaseManager()
+		if err := dbMgr.Connect(config.DatabaseConfig); err != nil {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+		fmt.Println("INFO: Framework initialized with database connection")
+	} else {
+		dbMgr = NewNoopDatabaseManager()
+		fmt.Println("INFO: Framework initialized without database. Database-dependent features will use in-memory storage.")
 	}
 	f.database = dbMgr
 
@@ -403,8 +417,8 @@ func (f *Framework) Shutdown(timeout time.Duration) error {
 		}
 	}
 
-	// Close database connections
-	if f.database != nil {
+	// Close database connections only if connected
+	if f.database != nil && f.database.IsConnected() {
 		if err := f.database.Close(); err != nil {
 			return fmt.Errorf("database close failed: %w", err)
 		}

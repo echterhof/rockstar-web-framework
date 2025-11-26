@@ -115,3 +115,24 @@ message:
     processing: "Anfrage wird verarbeitet..."
     loading: "Daten werden geladen..."
     saving: "Daten werden gespeichert..."
+
+# Plural translations for plural_translation_example.go
+items:
+  one: "Sie haben {{count}} Element"
+  other: "Sie haben {{count}} Elemente"
+
+files:
+  one: "{{count}} Datei ausgewählt"
+  other: "{{count}} Dateien ausgewählt"
+
+users:
+  one: "{{count}} Benutzer online"
+  other: "{{count}} Benutzer online"
+
+messages:
+  one: "Sie haben {{count}} ungelesene Nachricht"
+  other: "Sie haben {{count}} ungelesene Nachrichten"
+
+downloads:
+  one: "{{count}} Download verbleibend"
+  other: "{{count}} Downloads verbleibend"

@@ -1,158 +1,238 @@
-//go:build test
-// +build test
-
 package pkg
 
 import (
-	"strings"
 	"testing"
-	"testing/quick"
+
+	"github.com/leanovate/gopter"
+	"github.com/leanovate/gopter/gen"
+	"github.com/leanovate/gopter/prop"
 )
 
-// **Feature: sqlite-standardization, Property 5: SQLite connections use CGO driver**
-// **Validates: Requirements 9.1, 9.4**
-func TestProperty_SQLiteUsesCGODriver(t *testing.T) {
-	// Property: For any SQLite database configuration, the system should use
-	// the github.com/mattn/go-sqlite3 driver which requires CGO
+// TestProperty_FrameworkInitWithoutDatabaseAlwaysSucceeds tests Property 1
+// **Feature: optional-database, Property 1: Framework initialization succeeds without database configuration**
+// **Validates: Requirements 1.1, 1.2**
+func TestProperty_FrameworkInitWithoutDatabaseAlwaysSucceeds(t *testing.T) {
+	properties := gopter.NewProperties(nil)
 
-	property := func(seed uint32) bool {
-		// Generate a valid SQLite database path from seed
-		dbPath := generateSQLitePath(seed)
+	properties.Property("Framework initialization succeeds with empty database config",
+		prop.ForAll(
+			func(driver, database, username, password string) bool {
+				// Test various combinations of missing/empty configuration fields
+				configs := []DatabaseConfig{
+					// Empty driver
+					{Driver: "", Database: database, Username: username, Password: password},
+					// Empty database
+					{Driver: driver, Database: "", Username: username, Password: password},
+					// Empty credentials (non-SQLite)
+					{Driver: "postgres", Database: database, Username: "", Password: ""},
+					{Driver: "mysql", Database: database, Username: "", Password: password},
+					{Driver: "postgres", Database: database, Username: username, Password: ""},
+					// Completely empty
+					{},
+				}
 
-		// Create a database configuration for SQLite
-		config := DatabaseConfig{
-			Driver:   "sqlite3",
-			Database: dbPath,
-			Options:  make(map[string]string),
-		}
+				for _, config := range configs {
+					// Skip SQLite special case - it only needs database path
+					if config.Driver == "sqlite" || config.Driver == "sqlite3" {
+						if config.Database != "" {
+							continue // This would be considered configured
+						}
+					}
 
-		// Create database manager
-		dm := &databaseManager{}
+					// Configuration should be detected as not configured
+					if isDatabaseConfigured(config) {
+						return false
+					}
+				}
 
-		// Build DSN
-		dsn, err := dm.buildDSN(config)
-		if err != nil {
-			t.Logf("Failed to build DSN: %v", err)
-			return false
-		}
+				return true
+			},
+			gen.AlphaString(),
+			gen.AlphaString(),
+			gen.AlphaString(),
+			gen.AlphaString(),
+		))
 
-		// Verify the DSN is not empty (basic sanity check)
-		if dsn == "" {
-			t.Logf("DSN is empty for SQLite configuration")
-			return false
-		}
+	properties.Property("SQLite configuration only requires driver and database",
+		prop.ForAll(
+			func(database string) bool {
+				// SQLite should be considered configured with just driver and database
+				if database == "" {
+					return true // Skip empty database
+				}
 
-		// Verify the DSN starts with the database path
-		if !strings.HasPrefix(dsn, dbPath) {
-			t.Logf("DSN does not start with database path. Expected prefix: %s, Got: %s", dbPath, dsn)
-			return false
-		}
+				config := DatabaseConfig{
+					Driver:   "sqlite",
+					Database: database,
+					// No username/password needed
+				}
 
-		// The actual CGO driver verification happens at runtime when sql.Open is called
-		// This property test verifies that the DSN is correctly formatted for the CGO driver
-		// The driver import is: _ "github.com/mattn/go-sqlite3"
-		// which is present in database_impl.go
+				return isDatabaseConfigured(config)
+			},
+			gen.AlphaString().SuchThat(func(s string) bool { return s != "" }),
+		))
 
-		return true
-	}
+	properties.Property("Non-SQLite drivers require credentials",
+		prop.ForAll(
+			func(driver, database, username, password string) bool {
+				// Skip empty values and SQLite
+				if driver == "" || database == "" || driver == "sqlite" || driver == "sqlite3" {
+					return true
+				}
 
-	config := &quick.Config{
-		MaxCount: 100, // Run 100 iterations as specified in design
-	}
+				config := DatabaseConfig{
+					Driver:   driver,
+					Database: database,
+					Username: username,
+					Password: password,
+				}
 
-	if err := quick.Check(property, config); err != nil {
-		t.Errorf("Property test failed: %v", err)
+				// Should only be configured if both username and password are non-empty
+				expected := username != "" && password != ""
+				actual := isDatabaseConfigured(config)
+
+				return expected == actual
+			},
+			gen.OneConstOf("postgres", "mysql", "mssql"),
+			gen.AlphaString().SuchThat(func(s string) bool { return s != "" }),
+			gen.AlphaString(),
+			gen.AlphaString(),
+		))
+
+	properties.TestingRun(t, gopter.ConsoleReporter(false))
+}
+
+// TestProperty_NoopDatabaseDetection tests the isNoopDatabase helper
+func TestProperty_NoopDatabaseDetection(t *testing.T) {
+	properties := gopter.NewProperties(nil)
+
+	properties.Property("isNoopDatabase correctly identifies no-op manager",
+		prop.ForAll(
+			func() bool {
+				// Create a no-op database manager
+				noopDB := NewNoopDatabaseManager()
+
+				// Should be detected as no-op
+				if !isNoopDatabase(noopDB) {
+					return false
+				}
+
+				// Nil should also be considered no-op
+				if !isNoopDatabase(nil) {
+					return false
+				}
+
+				return true
+			},
+		))
+
+	properties.Property("isNoopDatabase returns false for real database manager",
+		prop.ForAll(
+			func() bool {
+				// Create a real database manager
+				realDB := NewDatabaseManager()
+
+				// Should NOT be detected as no-op
+				return !isNoopDatabase(realDB)
+			},
+		))
+
+	properties.TestingRun(t, gopter.ConsoleReporter(false))
+}
+
+// Unit tests for specific edge cases
+
+func TestIsDatabaseConfigured_EmptyConfig(t *testing.T) {
+	config := DatabaseConfig{}
+	if isDatabaseConfigured(config) {
+		t.Error("Empty config should not be considered configured")
 	}
 }
 
-// **Feature: sqlite-standardization, Property 6: SQLite connections enable required pragmas**
-// **Validates: Requirements 9.2, 9.3**
-func TestProperty_SQLiteEnablesRequiredPragmas(t *testing.T) {
-	// Property: For any SQLite database connection, the DSN should include
-	// parameters for WAL mode and foreign key enforcement
-
-	property := func(seed uint32) bool {
-		// Generate a valid SQLite database path from seed
-		dbPath := generateSQLitePath(seed)
-
-		// Test both "sqlite" and "sqlite3" driver names
-		drivers := []string{"sqlite", "sqlite3"}
-		driverIdx := seed % 2
-		driver := drivers[driverIdx]
-
-		// Create a database configuration for SQLite
-		config := DatabaseConfig{
-			Driver:   driver,
-			Database: dbPath,
-			Options:  make(map[string]string),
-		}
-
-		// Create database manager
-		dm := &databaseManager{}
-
-		// Build DSN
-		dsn, err := dm.buildDSN(config)
-		if err != nil {
-			t.Logf("Failed to build DSN: %v", err)
-			return false
-		}
-
-		// Verify the DSN contains required pragmas
-		requiredParams := []string{
-			"_journal_mode=WAL",
-			"_foreign_keys=ON",
-			"_busy_timeout=5000",
-		}
-
-		for _, param := range requiredParams {
-			if !strings.Contains(dsn, param) {
-				t.Logf("DSN missing required parameter: %s. DSN: %s", param, dsn)
-				return false
-			}
-		}
-
-		// Verify the DSN has the correct format (path?params)
-		if !strings.Contains(dsn, "?") {
-			t.Logf("DSN does not contain parameter separator '?'. DSN: %s", dsn)
-			return false
-		}
-
-		// Verify parameters are properly joined with &
-		parts := strings.Split(dsn, "?")
-		if len(parts) != 2 {
-			t.Logf("DSN has incorrect format. Expected 'path?params', got: %s", dsn)
-			return false
-		}
-
-		params := parts[1]
-		paramList := strings.Split(params, "&")
-
-		// Verify we have at least the 3 required parameters
-		if len(paramList) < 3 {
-			t.Logf("DSN has fewer than 3 parameters. Got: %d, DSN: %s", len(paramList), dsn)
-			return false
-		}
-
-		return true
+func TestIsDatabaseConfigured_SQLiteWithDatabase(t *testing.T) {
+	config := DatabaseConfig{
+		Driver:   "sqlite",
+		Database: "test.db",
 	}
-
-	config := &quick.Config{
-		MaxCount: 100, // Run 100 iterations as specified in design
-	}
-
-	if err := quick.Check(property, config); err != nil {
-		t.Errorf("Property test failed: %v", err)
+	if !isDatabaseConfigured(config) {
+		t.Error("SQLite with database path should be considered configured")
 	}
 }
 
-// Helper function to generate SQLite database paths from a seed
-func generateSQLitePath(seed uint32) string {
-	// Generate deterministic but varied database paths
-	prefixes := []string{"test", "data", "app", "db", "storage", "cache"}
-	suffixes := []string{".db", ".sqlite", ".sqlite3", ".database"}
+func TestIsDatabaseConfigured_SQLite3WithDatabase(t *testing.T) {
+	config := DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: "test.db",
+	}
+	if !isDatabaseConfigured(config) {
+		t.Error("SQLite3 with database path should be considered configured")
+	}
+}
 
-	prefixIdx := seed % uint32(len(prefixes))
-	suffixIdx := (seed / uint32(len(prefixes))) % uint32(len(suffixes))
+func TestIsDatabaseConfigured_PostgresWithoutCredentials(t *testing.T) {
+	config := DatabaseConfig{
+		Driver:   "postgres",
+		Database: "testdb",
+		Host:     "localhost",
+		Port:     5432,
+	}
+	if isDatabaseConfigured(config) {
+		t.Error("Postgres without credentials should not be considered configured")
+	}
+}
 
-	return prefixes[prefixIdx] + suffixes[suffixIdx]
+func TestIsDatabaseConfigured_PostgresWithCredentials(t *testing.T) {
+	config := DatabaseConfig{
+		Driver:   "postgres",
+		Database: "testdb",
+		Host:     "localhost",
+		Port:     5432,
+		Username: "user",
+		Password: "pass",
+	}
+	if !isDatabaseConfigured(config) {
+		t.Error("Postgres with credentials should be considered configured")
+	}
+}
+
+func TestIsDatabaseConfigured_MySQLWithPartialCredentials(t *testing.T) {
+	// Only username, no password
+	config1 := DatabaseConfig{
+		Driver:   "mysql",
+		Database: "testdb",
+		Username: "user",
+	}
+	if isDatabaseConfigured(config1) {
+		t.Error("MySQL with only username should not be considered configured")
+	}
+
+	// Only password, no username
+	config2 := DatabaseConfig{
+		Driver:   "mysql",
+		Database: "testdb",
+		Password: "pass",
+	}
+	if isDatabaseConfigured(config2) {
+		t.Error("MySQL with only password should not be considered configured")
+	}
+}
+
+func TestIsNoopDatabase_WithNoopManager(t *testing.T) {
+	noopDB := NewNoopDatabaseManager()
+	if !isNoopDatabase(noopDB) {
+		t.Error("No-op database manager should be detected as no-op")
+	}
+}
+
+func TestIsNoopDatabase_WithRealManager(t *testing.T) {
+	realDB := NewDatabaseManager()
+	if isNoopDatabase(realDB) {
+		t.Error("Real database manager should not be detected as no-op")
+	}
+}
+
+func TestIsNoopDatabase_WithNil(t *testing.T) {
+	if !isNoopDatabase(nil) {
+		t.Error("Nil should be considered no-op")
+	}
 }

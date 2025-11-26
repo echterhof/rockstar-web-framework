@@ -469,7 +469,12 @@ func (rl *rateLimiter) Check(key string, limit int, window time.Duration) (bool,
 		return true, nil
 	}
 
-	return rl.db.CheckRateLimit(key, limit, window)
+	exceeded, err := rl.db.CheckRateLimit(key, limit, window)
+	if err != nil {
+		return false, err
+	}
+	// Return true if NOT exceeded (allowed), false if exceeded (not allowed)
+	return !exceeded, nil
 }
 
 // Increment increments the rate limit counter

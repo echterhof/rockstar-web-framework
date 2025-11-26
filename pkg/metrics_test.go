@@ -43,6 +43,7 @@ func (m *mockDatabaseForMetrics) Connect(config DatabaseConfig) error { return n
 func (m *mockDatabaseForMetrics) Close() error                        { return nil }
 func (m *mockDatabaseForMetrics) Ping() error                         { return nil }
 func (m *mockDatabaseForMetrics) Stats() DatabaseStats                { return DatabaseStats{} }
+func (m *mockDatabaseForMetrics) IsConnected() bool                   { return true }
 func (m *mockDatabaseForMetrics) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return nil, nil
 }

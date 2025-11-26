@@ -14,27 +14,61 @@ import (
 // MonitoringConfig holds monitoring configuration
 type MonitoringConfig struct {
 	// Metrics endpoint configuration
+	// EnableMetrics enables the metrics HTTP endpoint.
+	// Default: false
 	EnableMetrics bool
-	MetricsPath   string
-	MetricsPort   int
+
+	// MetricsPath is the HTTP path for the metrics endpoint.
+	// Default: ""
+	MetricsPath string
+
+	// MetricsPort is the port number for the metrics HTTP server.
+	// Default: 9090
+	MetricsPort int
 
 	// Pprof configuration
+	// EnablePprof enables pprof profiling endpoints.
+	// Default: false
 	EnablePprof bool
-	PprofPath   string
-	PprofPort   int
+
+	// PprofPath is the HTTP path for pprof endpoints.
+	// Default: ""
+	PprofPath string
+
+	// PprofPort is the port number for the pprof HTTP server.
+	// Default: 6060
+	PprofPort int
 
 	// SNMP configuration
-	EnableSNMP    bool
-	SNMPPort      int
+	// EnableSNMP enables SNMP monitoring support.
+	// Default: false
+	EnableSNMP bool
+
+	// SNMPPort is the port number for the SNMP server.
+	// Default: 161
+	SNMPPort int
+
+	// SNMPCommunity is the SNMP community string for authentication.
+	// Default: "public"
 	SNMPCommunity string
 
 	// Process optimization
-	EnableOptimization   bool
+	// EnableOptimization enables automatic process optimization.
+	// Default: false
+	EnableOptimization bool
+
+	// OptimizationInterval is the interval between automatic optimizations.
+	// Default: 5 minutes
 	OptimizationInterval time.Duration
 
 	// Security
+	// RequireAuth requires authentication for monitoring endpoints.
+	// Default: false
 	RequireAuth bool
-	AuthToken   string
+
+	// AuthToken is the bearer token for authentication.
+	// Default: ""
+	AuthToken string
 }
 
 // MonitoringManager manages monitoring and profiling features
@@ -108,6 +142,7 @@ type monitoringManagerImpl struct {
 	metricsCollector MetricsCollector
 	db               DatabaseManager
 	logger           Logger
+	metricsStorage   *inMemoryMetricsStorage
 
 	// State
 	running             bool
@@ -133,7 +168,9 @@ type monitoringManagerImpl struct {
 
 // NewMonitoringManager creates a new monitoring manager
 func NewMonitoringManager(config MonitoringConfig, metrics MetricsCollector, db DatabaseManager, logger Logger) MonitoringManager {
-	return &monitoringManagerImpl{
+	config.ApplyDefaults()
+
+	mm := &monitoringManagerImpl{
 		config:            config,
 		metricsCollector:  metrics,
 		db:                db,
@@ -141,6 +178,16 @@ func NewMonitoringManager(config MonitoringConfig, metrics MetricsCollector, db 
 		stopChan:          make(chan struct{}),
 		optimizationStats: &OptimizationStats{},
 	}
+
+	// Check if database is available
+	if isNoopDatabase(db) {
+		mm.metricsStorage = newInMemoryMetricsStorage()
+		if logger != nil {
+			logger.Warn("MonitoringManager using in-memory storage. Metrics will not persist across restarts.")
+		}
+	}
+
+	return mm
 }
 
 // Start starts the monitoring manager
@@ -205,8 +252,30 @@ func (m *monitoringManagerImpl) Stop() error {
 		m.optimizationTicker = nil
 	}
 
-	// Release lock before waiting to prevent deadlock
+	// Capture servers for shutdown (before releasing lock)
+	metricsServer := m.metricsServer
+	pprofServer := m.pprofServer
+	snmpServer := m.snmpServer
+
+	// Release lock before shutting down servers to prevent deadlock
 	m.mu.Unlock()
+
+	// Shutdown servers (this will cause their goroutines to exit)
+	if metricsServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		metricsServer.Shutdown(ctx)
+		cancel()
+	}
+
+	if pprofServer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		pprofServer.Shutdown(ctx)
+		cancel()
+	}
+
+	if snmpServer != nil {
+		snmpServer.Stop()
+	}
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
@@ -225,31 +294,13 @@ func (m *monitoringManagerImpl) Stop() error {
 		}
 	}
 
-	// Reacquire lock for cleanup
+	// Reacquire lock for final cleanup
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Stop metrics server
-	if m.metricsServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		m.metricsServer.Shutdown(ctx)
-		m.metricsServer = nil
-	}
-
-	// Stop pprof server
-	if m.pprofServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		m.pprofServer.Shutdown(ctx)
-		m.pprofServer = nil
-	}
-
-	// Stop SNMP server
-	if m.snmpServer != nil {
-		m.snmpServer.Stop()
-		m.snmpServer = nil
-	}
+	m.metricsServer = nil
+	m.pprofServer = nil
+	m.snmpServer = nil
 
 	m.running = false
 	m.metricsEnabled = false
@@ -483,6 +534,7 @@ func (m *monitoringManagerImpl) SetConfig(config MonitoringConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	config.ApplyDefaults()
 	m.config = config
 	return nil
 }
@@ -555,12 +607,18 @@ func (m *monitoringManagerImpl) GetSNMPData() (*SNMPData, error) {
 		SystemInfo: m.getSystemInfo(),
 	}
 
-	// Get workload metrics from database if available
-	if m.db != nil {
-		from := time.Now().Add(-1 * time.Hour)
-		to := time.Now()
+	from := time.Now().Add(-1 * time.Hour)
+	to := time.Now()
 
-		// Get metrics for all tenants (empty string means all)
+	// Get workload metrics from database or in-memory storage
+	if m.metricsStorage != nil {
+		// Use in-memory storage
+		metrics, err := m.metricsStorage.Query("", from, to)
+		if err == nil {
+			data.WorkloadMetrics = metrics
+		}
+	} else if m.db != nil && !isNoopDatabase(m.db) {
+		// Use database storage
 		metrics, err := m.db.GetWorkloadMetrics("", from, to)
 		if err == nil {
 			data.WorkloadMetrics = metrics
@@ -569,9 +627,6 @@ func (m *monitoringManagerImpl) GetSNMPData() (*SNMPData, error) {
 
 	// Get aggregated metrics if metrics collector is available
 	if m.metricsCollector != nil {
-		from := time.Now().Add(-1 * time.Hour)
-		to := time.Now()
-
 		// Try to get aggregated metrics (this may fail if not implemented)
 		if agg, err := m.metricsCollector.GetAggregatedMetrics("", from, to); err == nil {
 			data.AggregatedMetrics = agg

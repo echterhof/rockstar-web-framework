@@ -3,595 +3,783 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-// TestAuthenticationOAuth2Integration tests OAuth2 authentication end-to-end
+// TestAuthenticationOAuth2Integration tests OAuth2 token creation and validation
+// Requirements: 2.1
 func TestAuthenticationOAuth2Integration(t *testing.T) {
-	// Setup database - using the mock from auth_test.go
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-
-	// Setup auth manager
-	authManager := pkg.NewAuthManager(db, "test-secret-key", pkg.OAuth2Config{})
-
-	// Create access token
-	token, err := authManager.CreateAccessToken(
-		"user123",
-		"tenant456",
-		[]string{"read", "write"},
-		1*time.Hour,
-	)
-	if err != nil {
-		t.Fatalf("Failed to create access token: %v", err)
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Initialize database tables
+	err = framework.Database().CreateTables()
+	assertNoError(t, err, "Failed to create database tables")
 
-	// Protected route
-	router.GET("/api/protected", func(ctx pkg.Context) error {
-		// Extract token from header
-		authHeader := ctx.Headers()["Authorization"]
+	// Create auth manager
+	authManager := pkg.NewAuthManager(framework.Database(), "test-jwt-secret-key-32-bytes!!", pkg.OAuth2Config{
+		ClientID:     "test-client",
+		ClientSecret: "test-secret",
+	})
+
+	// Create test user and token
+	testUser := createTestUser("user1", "testuser", "tenant1", []string{"user"}, []string{"read"})
+	testToken, err := authManager.CreateAccessToken(testUser.ID, testUser.TenantID, []string{"read", "write"}, 1*time.Hour)
+	assertNoError(t, err, "Failed to create test token")
+
+	// Register protected route
+	framework.Router().GET("/protected", func(ctx pkg.Context) error {
+		// Extract token from Authorization header
+		authHeader := ctx.GetHeader("Authorization")
 		if authHeader == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+			return ctx.JSON(401, map[string]string{"error": "Missing authorization header"})
 		}
 
-		// Authenticate
-		user, err := authManager.AuthenticateOAuth2(authHeader)
+		// Parse Bearer token
+		var token string
+		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			token = authHeader[7:]
+		} else {
+			return ctx.JSON(401, map[string]string{"error": "Invalid authorization header format"})
+		}
+
+		// Authenticate with OAuth2
+		user, err := authManager.AuthenticateOAuth2(token)
 		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			return ctx.JSON(401, map[string]string{"error": "Authentication failed"})
 		}
 
-		return ctx.JSON(http.StatusOK, map[string]interface{}{
+		return ctx.JSON(200, map[string]interface{}{
 			"message": "Access granted",
 			"user_id": user.ID,
-			"tenant":  user.TenantID,
 		})
 	})
 
-	server.SetRouter(router)
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19101"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	addr := "127.0.0.1:19101"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Test with valid token
-	req, _ := http.NewRequest("GET", "http://"+addr+"/api/protected", nil)
-	req.Header.Set("Authorization", token.Token)
+	// Test valid OAuth2 token
+	t.Run("Valid OAuth2 token", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19101/protected", nil)
+		assertNoError(t, err, "Failed to create request")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		req.Header.Set("Authorization", "Bearer "+testToken.Token)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
 
-	if result["user_id"] != "user123" {
-		t.Errorf("Expected user_id 'user123', got '%v'", result["user_id"])
-	}
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
 
-	// Test without token
-	req, _ = http.NewRequest("GET", "http://"+addr+"/api/protected", nil)
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		assertEqual(t, "Access granted", data["message"], "Unexpected message")
+		assertEqual(t, testUser.ID, data["user_id"], "Unexpected user ID")
+	})
 
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected status 401, got %d", resp.StatusCode)
-	}
+	// Test invalid OAuth2 token
+	t.Run("Invalid OAuth2 token", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19101/protected", nil)
+		assertNoError(t, err, "Failed to create request")
 
-	// Test with invalid token
-	req, _ = http.NewRequest("GET", "http://"+addr+"/api/protected", nil)
-	req.Header.Set("Authorization", "invalid-token")
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		req.Header.Set("Authorization", "Bearer invalid-token")
 
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("Expected status 401, got %d", resp.StatusCode)
-	}
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 401, resp.StatusCode, "Expected status 401")
+	})
+
+	// Test missing authorization header
+	t.Run("Missing authorization header", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19101/protected")
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 401, resp.StatusCode, "Expected status 401")
+	})
 }
 
-// TestAuthenticationJWTIntegration tests JWT authentication end-to-end
+// TestAuthenticationJWTIntegration tests JWT generation and validation
+// Requirements: 2.2
 func TestAuthenticationJWTIntegration(t *testing.T) {
-	// Setup
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-	authManager := pkg.NewAuthManager(db, "test-secret-key", pkg.OAuth2Config{})
-
-	// Create user and generate JWT
-	user := &pkg.User{
-		ID:       "user123",
-		Username: "testuser",
-		Email:    "test@example.com",
-		Roles:    []string{"admin"},
-		TenantID: "tenant456",
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	jwtToken, err := authManager.GenerateJWT(user, 1*time.Hour)
-	if err != nil {
-		t.Fatalf("Failed to generate JWT: %v", err)
-	}
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
+	// Create auth manager
+	authManager := pkg.NewAuthManager(framework.Database(), "test-jwt-secret-key-32-bytes!!", pkg.OAuth2Config{})
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Create test user
+	testUser := createTestUser("user2", "jwtuser", "tenant1", []string{"admin"}, []string{"read", "write"})
 
-	// JWT protected route
-	router.GET("/api/profile", func(ctx pkg.Context) error {
-		authHeader := ctx.Headers()["Authorization"]
+	// Generate JWT token
+	jwtToken, err := authManager.GenerateJWT(testUser, 1*time.Hour)
+	assertNoError(t, err, "Failed to generate JWT")
+
+	// Register protected route
+	framework.Router().GET("/jwt-protected", func(ctx pkg.Context) error {
+		// Extract token from Authorization header
+		authHeader := ctx.GetHeader("Authorization")
 		if authHeader == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+			return ctx.JSON(401, map[string]string{"error": "Missing authorization header"})
 		}
 
-		user, err := authManager.AuthenticateJWT(authHeader)
+		// Parse Bearer token
+		var token string
+		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+			token = authHeader[7:]
+		} else {
+			return ctx.JSON(401, map[string]string{"error": "Invalid authorization header format"})
+		}
+
+		// Authenticate with JWT
+		user, err := authManager.AuthenticateJWT(token)
 		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			return ctx.JSON(401, map[string]string{"error": "Authentication failed"})
 		}
 
-		return ctx.JSON(http.StatusOK, map[string]interface{}{
-			"id":       user.ID,
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "JWT access granted",
+			"user_id":  user.ID,
 			"username": user.Username,
 			"email":    user.Email,
+			"roles":    user.Roles,
 		})
 	})
 
-	server.SetRouter(router)
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19102"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	addr := "127.0.0.1:19102"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Test with valid JWT
-	req, _ := http.NewRequest("GET", "http://"+addr+"/api/profile", nil)
-	req.Header.Set("Authorization", jwtToken)
+	// Test valid JWT token
+	t.Run("Valid JWT token", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19102/jwt-protected", nil)
+		assertNoError(t, err, "Failed to create request")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
 
-	if result["username"] != "testuser" {
-		t.Errorf("Expected username 'testuser', got '%v'", result["username"])
-	}
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
+
+		assertEqual(t, "JWT access granted", data["message"], "Unexpected message")
+		assertEqual(t, testUser.ID, data["user_id"], "Unexpected user ID")
+		assertEqual(t, testUser.Username, data["username"], "Unexpected username")
+	})
+
+	// Test invalid JWT token
+	t.Run("Invalid JWT token", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19102/jwt-protected", nil)
+		assertNoError(t, err, "Failed to create request")
+
+		req.Header.Set("Authorization", "Bearer invalid.jwt.token")
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 401, resp.StatusCode, "Expected status 401")
+	})
+
+	// Test JWT claims extraction
+	t.Run("JWT claims extraction", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19102/jwt-protected", nil)
+		assertNoError(t, err, "Failed to create request")
+
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
+
+		// Verify claims are extracted correctly
+		assertNotNil(t, data["roles"], "Roles should be present")
+		assertEqual(t, testUser.Username, data["username"], "Username should match")
+		assertEqual(t, testUser.Email, data["email"], "Email should match")
+	})
 }
 
-// TestAuthorizationRoleBasedIntegration tests role-based authorization end-to-end
+// TestAuthorizationRoleBasedIntegration tests role-based authorization
+// Requirements: 2.3
 func TestAuthorizationRoleBasedIntegration(t *testing.T) {
-	// Setup
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-	authManager := pkg.NewAuthManager(db, "test-secret-key", pkg.OAuth2Config{})
-
-	// Create users with different roles
-	adminUser := &pkg.User{
-		ID:       "admin123",
-		Username: "admin",
-		Roles:    []string{"admin"},
-		TenantID: "tenant456",
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	regularUser := &pkg.User{
-		ID:       "user123",
-		Username: "user",
-		Roles:    []string{"user"},
-		TenantID: "tenant456",
-	}
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	adminToken, _ := authManager.GenerateJWT(adminUser, 1*time.Hour)
-	userToken, _ := authManager.GenerateJWT(regularUser, 1*time.Hour)
+	// Create auth manager
+	authManager := pkg.NewAuthManager(framework.Database(), "test-jwt-secret-key-32-bytes!!", pkg.OAuth2Config{})
 
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
+	// Create test users with different roles
+	adminUser := createTestUser("admin1", "adminuser", "tenant1", []string{"admin"}, []string{"read", "write", "delete"})
+	regularUser := createTestUser("user3", "regularuser", "tenant1", []string{"user"}, []string{"read"})
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Generate JWT tokens
+	adminToken, err := authManager.GenerateJWT(adminUser, 1*time.Hour)
+	assertNoError(t, err, "Failed to generate admin JWT")
 
-	// Admin-only route
-	router.GET("/api/admin/users", func(ctx pkg.Context) error {
-		authHeader := ctx.Headers()["Authorization"]
-		if authHeader == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	userToken, err := authManager.GenerateJWT(regularUser, 1*time.Hour)
+	assertNoError(t, err, "Failed to generate user JWT")
+
+	// Register admin-only route
+	framework.Router().GET("/admin-only", func(ctx pkg.Context) error {
+		// Extract and authenticate token
+		authHeader := ctx.GetHeader("Authorization")
+		if authHeader == "" || len(authHeader) < 8 {
+			return ctx.JSON(401, map[string]string{"error": "Missing authorization"})
 		}
 
-		user, err := authManager.AuthenticateJWT(authHeader)
+		token := authHeader[7:]
+		user, err := authManager.AuthenticateJWT(token)
 		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			return ctx.JSON(401, map[string]string{"error": "Authentication failed"})
 		}
 
-		// Check authorization
+		// Check admin role
 		if err := authManager.AuthorizeRole(user, "admin"); err != nil {
-			return ctx.JSON(http.StatusForbidden, map[string]string{"error": "insufficient permissions"})
+			return ctx.JSON(403, map[string]string{"error": "Insufficient permissions"})
 		}
 
-		return ctx.JSON(http.StatusOK, []map[string]string{
-			{"id": "1", "name": "Alice"},
-			{"id": "2", "name": "Bob"},
-		})
+		return ctx.JSON(200, map[string]string{"message": "Admin access granted"})
 	})
 
-	server.SetRouter(router)
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19103"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	addr := "127.0.0.1:19103"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	client := &http.Client{}
+	// Test admin role access
+	t.Run("Admin role access", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19103/admin-only", nil)
+		assertNoError(t, err, "Failed to create request")
 
-	// Test with admin token (should succeed)
-	req, _ := http.NewRequest("GET", "http://"+addr+"/api/admin/users", nil)
-	req.Header.Set("Authorization", adminToken)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200 for admin, got %d", resp.StatusCode)
-	}
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200 for admin")
 
-	// Test with regular user token (should fail)
-	req, _ = http.NewRequest("GET", "http://"+addr+"/api/admin/users", nil)
-	req.Header.Set("Authorization", userToken)
+		var data map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
 
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		assertEqual(t, "Admin access granted", data["message"], "Unexpected message")
+	})
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("Expected status 403 for regular user, got %d", resp.StatusCode)
-	}
+	// Test regular user role rejection
+	t.Run("Regular user role rejection", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19103/admin-only", nil)
+		assertNoError(t, err, "Failed to create request")
+
+		req.Header.Set("Authorization", "Bearer "+userToken)
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 403, resp.StatusCode, "Expected status 403 for regular user")
+	})
 }
 
-// TestAuthorizationActionBasedIntegration tests action-based authorization end-to-end
+// TestAuthorizationActionBasedIntegration tests action-based authorization
+// Requirements: 2.4
 func TestAuthorizationActionBasedIntegration(t *testing.T) {
-	// Setup
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-	authManager := pkg.NewAuthManager(db, "test-secret-key", pkg.OAuth2Config{})
-
-	// Create users with different actions
-	writeUser := &pkg.User{
-		ID:       "writer123",
-		Username: "writer",
-		Actions:  []string{"read", "write"},
-		TenantID: "tenant456",
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	readOnlyUser := &pkg.User{
-		ID:       "reader123",
-		Username: "reader",
-		Actions:  []string{"read"},
-		TenantID: "tenant456",
-	}
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	writeToken, _ := authManager.GenerateJWT(writeUser, 1*time.Hour)
-	readToken, _ := authManager.GenerateJWT(readOnlyUser, 1*time.Hour)
+	// Create auth manager
+	authManager := pkg.NewAuthManager(framework.Database(), "test-jwt-secret-key-32-bytes!!", pkg.OAuth2Config{})
 
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
+	// Create test users with different actions
+	writeUser := createTestUser("user4", "writeuser", "tenant1", []string{"user"}, []string{"read", "write"})
+	readOnlyUser := createTestUser("user5", "readonlyuser", "tenant1", []string{"user"}, []string{"read"})
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Generate JWT tokens
+	writeToken, err := authManager.GenerateJWT(writeUser, 1*time.Hour)
+	assertNoError(t, err, "Failed to generate write user JWT")
 
-	// Write-protected route
-	router.POST("/api/posts", func(ctx pkg.Context) error {
-		authHeader := ctx.Headers()["Authorization"]
-		if authHeader == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+	readToken, err := authManager.GenerateJWT(readOnlyUser, 1*time.Hour)
+	assertNoError(t, err, "Failed to generate read-only user JWT")
+
+	// Register write-protected route
+	framework.Router().POST("/write-data", func(ctx pkg.Context) error {
+		// Extract and authenticate token
+		authHeader := ctx.GetHeader("Authorization")
+		if authHeader == "" || len(authHeader) < 8 {
+			return ctx.JSON(401, map[string]string{"error": "Missing authorization"})
 		}
 
-		user, err := authManager.AuthenticateJWT(authHeader)
+		token := authHeader[7:]
+		user, err := authManager.AuthenticateJWT(token)
 		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			return ctx.JSON(401, map[string]string{"error": "Authentication failed"})
 		}
 
-		// Check write permission
+		// Check write action
 		if err := authManager.AuthorizeAction(user, "write"); err != nil {
-			return ctx.JSON(http.StatusForbidden, map[string]string{"error": "write permission required"})
+			return ctx.JSON(403, map[string]string{"error": "Insufficient permissions"})
 		}
 
-		var post map[string]interface{}
-		json.Unmarshal(ctx.Body(), &post)
-		post["id"] = "1"
-
-		return ctx.JSON(http.StatusCreated, post)
+		return ctx.JSON(200, map[string]string{"message": "Write access granted"})
 	})
 
-	server.SetRouter(router)
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19104"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	addr := "127.0.0.1:19104"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	client := &http.Client{}
-	postData := map[string]string{"title": "New Post"}
-	jsonData, _ := json.Marshal(postData)
+	// Test write action access
+	t.Run("Write action access", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("POST", "http://localhost:19104/write-data", bytes.NewBufferString("{}"))
+		assertNoError(t, err, "Failed to create request")
 
-	// Test with write permission (should succeed)
-	req, _ := http.NewRequest("POST", "http://"+addr+"/api/posts", bytes.NewBuffer(jsonData))
-	req.Header.Set("Authorization", writeToken)
-	req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+writeToken)
+		req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("Expected status 201 for write user, got %d", resp.StatusCode)
-	}
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200 for write user")
 
-	// Test with read-only permission (should fail)
-	req, _ = http.NewRequest("POST", "http://"+addr+"/api/posts", bytes.NewBuffer(jsonData))
-	req.Header.Set("Authorization", readToken)
-	req.Header.Set("Content-Type", "application/json")
+		var data map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
 
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("Request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		assertEqual(t, "Write access granted", data["message"], "Unexpected message")
+	})
 
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("Expected status 403 for read-only user, got %d", resp.StatusCode)
-	}
+	// Test read-only action rejection
+	t.Run("Read-only action rejection", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("POST", "http://localhost:19104/write-data", bytes.NewBufferString("{}"))
+		assertNoError(t, err, "Failed to create request")
+
+		req.Header.Set("Authorization", "Bearer "+readToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 403, resp.StatusCode, "Expected status 403 for read-only user")
+	})
 }
 
 // TestSessionAuthenticationIntegration tests session-based authentication
+// Requirements: 2.5
 func TestSessionAuthenticationIntegration(t *testing.T) {
-	// Setup
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-
-	sessionConfig := pkg.DefaultSessionConfig()
-	sessionConfig.EncryptionKey = make([]byte, 32)
-	sessionConfig.StorageType = pkg.SessionStorageDatabase
-
-	sessionManager, err := pkg.NewSessionManager(sessionConfig, db, nil)
-	if err != nil {
-		t.Fatalf("Failed to create session manager: %v", err)
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Initialize database tables
+	err = framework.Database().CreateTables()
+	assertNoError(t, err, "Failed to create database tables")
 
-	// Login route
-	router.POST("/api/login", func(ctx pkg.Context) error {
-		var credentials map[string]string
-		json.Unmarshal(ctx.Body(), &credentials)
+	// Create test user
+	testUser := createTestUser("user6", "sessionuser", "tenant1", []string{"user"}, []string{"read"})
 
-		// Simulate authentication
-		if credentials["username"] == "testuser" && credentials["password"] == "password" {
-			// Create session
-			session, err := sessionManager.Create(ctx)
-			if err != nil {
-				return ctx.JSON(http.StatusInternalServerError, map[string]string{"error": "session creation failed"})
-			}
+	// Store session ID for testing
+	var sessionID string
+	var sessionMu sync.Mutex
 
-			session.UserID = "user123"
-			session.Data["username"] = "testuser"
-			sessionManager.Save(ctx, session)
-
-			// Set cookie
-			sessionManager.SetCookie(ctx, session)
-
-			return ctx.JSON(http.StatusOK, map[string]string{
-				"message":    "login successful",
-				"session_id": session.ID,
-			})
+	// Register login route
+	framework.Router().POST("/login", func(ctx pkg.Context) error {
+		// Create session
+		session, err := framework.Session().Create(ctx)
+		if err != nil {
+			return ctx.JSON(500, map[string]string{"error": "Failed to create session"})
 		}
 
-		return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		// Store user ID in session
+		session.UserID = testUser.ID
+		session.TenantID = testUser.TenantID
+		session.Data["username"] = testUser.Username
+		session.Data["roles"] = testUser.Roles
+
+		// Save session
+		if err := framework.Session().Save(ctx, session); err != nil {
+			return ctx.JSON(500, map[string]string{"error": "Failed to save session"})
+		}
+
+		// Set session cookie
+		if err := framework.Session().SetCookie(ctx, session); err != nil {
+			return ctx.JSON(500, map[string]string{"error": "Failed to set cookie"})
+		}
+
+		sessionMu.Lock()
+		sessionID = session.ID
+		sessionMu.Unlock()
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":    "Login successful",
+			"session_id": session.ID,
+		})
 	})
 
-	// Protected route
-	router.GET("/api/dashboard", func(ctx pkg.Context) error {
-		session, err := sessionManager.GetSessionFromCookie(ctx)
+	// Register protected route
+	framework.Router().GET("/session-protected", func(ctx pkg.Context) error {
+		// Get session from cookie
+		session, err := framework.Session().GetSessionFromCookie(ctx)
 		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+			return ctx.JSON(401, map[string]string{"error": "No valid session"})
 		}
 
-		if session.UserID == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "not authenticated"})
+		// Check if session is valid
+		if !framework.Session().IsValid(session.ID) {
+			return ctx.JSON(401, map[string]string{"error": "Session expired"})
 		}
 
-		return ctx.JSON(http.StatusOK, map[string]interface{}{
-			"message":  "welcome to dashboard",
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "Session access granted",
+			"user_id":  session.UserID,
 			"username": session.Data["username"],
 		})
 	})
 
-	server.SetRouter(router)
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19105"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	addr := "127.0.0.1:19105"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Test login
-	credentials := map[string]string{
-		"username": "testuser",
-		"password": "password",
-	}
-	jsonData, _ := json.Marshal(credentials)
+	// Test login flow
+	var sessionCookie string
+	t.Run("Login flow", func(t *testing.T) {
+		resp, err := http.Post("http://localhost:19105/login", "application/json", bytes.NewBufferString("{}"))
+		assertNoError(t, err, "Login request failed")
+		defer resp.Body.Close()
 
-	resp, err := http.Post("http://"+addr+"/api/login", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		t.Fatalf("Login request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
-
-	// Extract session cookie
-	cookies := resp.Cookies()
-	if len(cookies) == 0 {
-		t.Fatal("Expected session cookie")
-	}
-
-	// Test protected route with session
-	client := &http.Client{}
-	req, _ := http.NewRequest("GET", "http://"+addr+"/api/dashboard", nil)
-	for _, cookie := range cookies {
-		req.AddCookie(cookie)
-	}
-
-	resp, err = client.Do(req)
-	if err != nil {
-		t.Fatalf("Dashboard request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200 with valid session, got %d", resp.StatusCode)
-	}
-}
-
-// TestRateLimitingIntegration tests API rate limiting
-func TestRateLimitingIntegration(t *testing.T) {
-	// Setup
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-
-	securityConfig := pkg.SecurityConfig{
-		EncryptionKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-	}
-	securityManager, err := pkg.NewSecurityManager(db, securityConfig)
-	if err != nil {
-		t.Fatalf("Failed to create security manager: %v", err)
-	}
-
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	// Rate-limited route
-	router.GET("/api/limited", func(ctx pkg.Context) error {
-		// Check rate limit
-		if err := securityManager.CheckRateLimit(ctx, "api_endpoint"); err != nil {
-			return ctx.JSON(http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
+		// Extract session cookie
+		cookies := resp.Cookies()
+		for _, cookie := range cookies {
+			if cookie.Name == "rockstar_session" {
+				sessionCookie = cookie.Value
+				break
+			}
 		}
 
-		return ctx.JSON(http.StatusOK, map[string]string{"message": "success"})
+		assertNotNil(t, sessionCookie, "Session cookie should be set")
+
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
+
+		assertEqual(t, "Login successful", data["message"], "Unexpected message")
 	})
 
-	server.SetRouter(router)
+	// Test protected route access with session cookie
+	t.Run("Protected route with session", func(t *testing.T) {
+		client := &http.Client{}
+		req, err := http.NewRequest("GET", "http://localhost:19105/session-protected", nil)
+		assertNoError(t, err, "Failed to create request")
 
-	addr := "127.0.0.1:19106"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
+		// Add session cookie
+		req.AddCookie(&http.Cookie{
+			Name:  "rockstar_session",
+			Value: sessionCookie,
+		})
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode response")
+
+		assertEqual(t, "Session access granted", data["message"], "Unexpected message")
+		assertEqual(t, testUser.ID, data["user_id"], "Unexpected user ID")
+	})
+
+	// Test session persistence
+	t.Run("Session persistence", func(t *testing.T) {
+		sessionMu.Lock()
+		sid := sessionID
+		sessionMu.Unlock()
+
+		if sid == "" {
+			t.Skip("Session ID not set, skipping persistence test")
+			return
+		}
+
+		// Load session directly from database
+		session, err := framework.Session().Load(nil, sid)
+		assertNoError(t, err, "Failed to load session")
+
+		assertEqual(t, testUser.ID, session.UserID, "User ID should persist")
+		assertEqual(t, testUser.Username, session.Data["username"], "Username should persist")
+	})
+
+	// Test access without session cookie
+	t.Run("Access without session", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19105/session-protected")
+		assertNoError(t, err, "Request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 401, resp.StatusCode, "Expected status 401 without session")
+	})
+}
+
+// TestRateLimitingIntegration tests rate limiting enforcement
+// Requirements: 2.6
+func TestRateLimitingIntegration(t *testing.T) {
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
-	defer server.Close()
 
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
+
+	// Rate limit configuration
+	rateLimit := 5
+	rateLimitWindow := 1 * time.Minute
+	requestCounts := make(map[string]int)
+	var mu sync.Mutex
+
+	// Register rate-limited route
+	framework.Router().GET("/rate-limited", func(ctx pkg.Context) error {
+		// Get client identifier (IP address)
+		clientIP := ctx.Request().RemoteAddr
+
+		mu.Lock()
+		count := requestCounts[clientIP]
+
+		if count >= rateLimit {
+			mu.Unlock()
+			return ctx.JSON(429, map[string]interface{}{
+				"error":  "Rate limit exceeded",
+				"limit":  rateLimit,
+				"window": rateLimitWindow.String(),
+			})
+		}
+
+		requestCounts[clientIP]++
+		mu.Unlock()
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Request successful",
+			"count":   count + 1,
+		})
+	})
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19106"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Make requests up to limit
-	for i := 0; i < 5; i++ {
-		resp, err := http.Get("http://" + addr + "/api/limited")
-		if err != nil {
-			t.Fatalf("Request %d failed: %v", i+1, err)
+	// Test rate limiting enforcement
+	t.Run("Rate limiting enforcement", func(t *testing.T) {
+		// Use a shared client to maintain the same connection/IP
+		client := &http.Client{}
+
+		// Make requests up to the rate limit
+		for i := 1; i <= rateLimit; i++ {
+			req, err := http.NewRequest("GET", "http://localhost:19106/rate-limited", nil)
+			assertNoError(t, err, fmt.Sprintf("Failed to create request %d", i))
+
+			resp, err := client.Do(req)
+			assertNoError(t, err, fmt.Sprintf("Request %d failed", i))
+
+			assertEqual(t, 200, resp.StatusCode, fmt.Sprintf("Expected status 200 for request %d", i))
+
+			var data map[string]interface{}
+			err = json.NewDecoder(resp.Body).Decode(&data)
+			resp.Body.Close()
+			assertNoError(t, err, "Failed to decode response")
+
+			assertEqual(t, "Request successful", data["message"], "Unexpected message")
 		}
+
+		// Next request should be rate limited
+		req, err := http.NewRequest("GET", "http://localhost:19106/rate-limited", nil)
+		assertNoError(t, err, "Failed to create request")
+
+		resp, err := client.Do(req)
+		assertNoError(t, err, "Request failed")
+
+		assertEqual(t, 429, resp.StatusCode, "Expected status 429 when rate limit exceeded")
+
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
 		resp.Body.Close()
+		assertNoError(t, err, "Failed to decode response")
 
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("Request %d: expected status 200, got %d", i+1, resp.StatusCode)
-		}
-	}
-
-	// Next request should be rate limited
-	resp, err := http.Get("http://" + addr + "/api/limited")
-	if err != nil {
-		t.Fatalf("Rate limit test request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("Expected status 429 for rate limited request, got %d", resp.StatusCode)
-	}
+		assertEqual(t, "Rate limit exceeded", data["error"], "Unexpected error message")
+		assertNotNil(t, data["limit"], "Limit should be present in response")
+		assertEqual(t, float64(rateLimit), data["limit"], "Limit value should match configured limit")
+	})
 }

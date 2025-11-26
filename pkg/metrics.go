@@ -60,19 +60,27 @@ type LoadPrediction struct {
 
 // metricsCollectorImpl implements MetricsCollector
 type metricsCollectorImpl struct {
-	db       DatabaseManager
-	counters map[string]int64
-	gauges   map[string]float64
-	mu       sync.RWMutex
+	db             DatabaseManager
+	counters       map[string]int64
+	gauges         map[string]float64
+	metricsStorage *inMemoryMetricsStorage
+	mu             sync.RWMutex
 }
 
 // NewMetricsCollector creates a new metrics collector
 func NewMetricsCollector(db DatabaseManager) MetricsCollector {
-	return &metricsCollectorImpl{
+	mc := &metricsCollectorImpl{
 		db:       db,
 		counters: make(map[string]int64),
 		gauges:   make(map[string]float64),
 	}
+
+	// Check if database is available
+	if isNoopDatabase(db) {
+		mc.metricsStorage = newInMemoryMetricsStorage()
+	}
+
+	return mc
 }
 
 // Start begins metrics collection for a request
@@ -99,8 +107,9 @@ func (rm *RequestMetrics) End() {
 	// Capture final memory stats
 	runtime.ReadMemStats(&rm.endMemStats)
 
-	// Calculate memory usage (allocated during request)
-	rm.MemoryUsage = int64(rm.endMemStats.Alloc - rm.startMemStats.Alloc)
+	// Calculate memory usage using TotalAlloc (monotonically increasing)
+	// This avoids negative values when GC runs between measurements
+	rm.MemoryUsage = int64(rm.endMemStats.TotalAlloc - rm.startMemStats.TotalAlloc)
 
 	// Calculate CPU usage (approximate based on duration and goroutines)
 	// This is a simplified calculation - in production, you'd use more sophisticated methods
@@ -145,13 +154,8 @@ func (rm *RequestMetrics) SetContextSize(size int64) {
 	rm.ContextSize = size
 }
 
-// Record saves the collected metrics to the database
+// Record saves the collected metrics to the database or in-memory storage
 func (m *metricsCollectorImpl) Record(metrics *RequestMetrics) error {
-	if m.db == nil {
-		// If no database is configured, silently skip recording
-		return nil
-	}
-
 	// Ensure metrics are finalized
 	if metrics.EndTime.IsZero() {
 		metrics.End()
@@ -173,16 +177,34 @@ func (m *metricsCollectorImpl) Record(metrics *RequestMetrics) error {
 		ErrorMessage: metrics.ErrorMessage,
 	}
 
-	return m.db.SaveWorkloadMetrics(workloadMetrics)
+	// Use in-memory storage if database is not available
+	if m.metricsStorage != nil {
+		return m.metricsStorage.Save(workloadMetrics)
+	}
+
+	// Use database storage if available
+	if m.db != nil && !isNoopDatabase(m.db) {
+		return m.db.SaveWorkloadMetrics(workloadMetrics)
+	}
+
+	// If neither is available, silently skip recording
+	return nil
 }
 
 // GetMetrics retrieves metrics for a tenant within a time range
 func (m *metricsCollectorImpl) GetMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
-	if m.db == nil {
-		return nil, nil
+	// Use in-memory storage if database is not available
+	if m.metricsStorage != nil {
+		return m.metricsStorage.Query(tenantID, from, to)
 	}
 
-	return m.db.GetWorkloadMetrics(tenantID, from, to)
+	// Use database storage if available
+	if m.db != nil && !isNoopDatabase(m.db) {
+		return m.db.GetWorkloadMetrics(tenantID, from, to)
+	}
+
+	// If neither is available, return empty result
+	return nil, nil
 }
 
 // GetAggregatedMetrics returns aggregated metrics for analysis
@@ -403,20 +425,36 @@ func (m *metricsCollectorImpl) RecordError(ctx Context, err error) error {
 	return m.IncrementCounter("http.errors", tags)
 }
 
-// RecordWorkloadMetrics records workload metrics to the database
+// RecordWorkloadMetrics records workload metrics to the database or in-memory storage
 func (m *metricsCollectorImpl) RecordWorkloadMetrics(metrics *WorkloadMetrics) error {
-	if m.db == nil {
-		return nil
+	// Use in-memory storage if database is not available
+	if m.metricsStorage != nil {
+		return m.metricsStorage.Save(metrics)
 	}
-	return m.db.SaveWorkloadMetrics(metrics)
+
+	// Use database storage if available
+	if m.db != nil && !isNoopDatabase(m.db) {
+		return m.db.SaveWorkloadMetrics(metrics)
+	}
+
+	// If neither is available, silently skip recording
+	return nil
 }
 
-// GetWorkloadMetrics retrieves workload metrics from the database
+// GetWorkloadMetrics retrieves workload metrics from the database or in-memory storage
 func (m *metricsCollectorImpl) GetWorkloadMetrics(tenantID string, from, to time.Time) ([]*WorkloadMetrics, error) {
-	if m.db == nil {
-		return nil, nil
+	// Use in-memory storage if database is not available
+	if m.metricsStorage != nil {
+		return m.metricsStorage.Query(tenantID, from, to)
 	}
-	return m.db.GetWorkloadMetrics(tenantID, from, to)
+
+	// Use database storage if available
+	if m.db != nil && !isNoopDatabase(m.db) {
+		return m.db.GetWorkloadMetrics(tenantID, from, to)
+	}
+
+	// If neither is available, return empty result
+	return nil, nil
 }
 
 // RecordMemoryUsage records memory usage metrics

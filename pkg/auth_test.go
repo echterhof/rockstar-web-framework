@@ -73,6 +73,12 @@ func (m *MockDatabaseManager) DeleteSession(sessionID string) error {
 }
 
 func (m *MockDatabaseManager) CleanupExpiredSessions() error {
+	now := time.Now()
+	for id, session := range m.sessions {
+		if session.ExpiresAt.Before(now) {
+			delete(m.sessions, id)
+		}
+	}
 	return nil
 }
 
@@ -81,6 +87,7 @@ func (m *MockDatabaseManager) Connect(config DatabaseConfig) error { return nil 
 func (m *MockDatabaseManager) Close() error                        { return nil }
 func (m *MockDatabaseManager) Ping() error                         { return nil }
 func (m *MockDatabaseManager) Stats() DatabaseStats                { return DatabaseStats{} }
+func (m *MockDatabaseManager) IsConnected() bool                   { return true }
 func (m *MockDatabaseManager) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return nil, nil
 }

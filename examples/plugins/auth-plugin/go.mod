@@ -1,7 +1,7 @@
-module github.com/yourusername/rockstar-plugins/auth-plugin
+module github.com/echterhof/rockstar-web-framework/examples/plugins/auth-plugin
 
 go 1.21
 
-require github.com/yourusername/rockstar v1.0.0
+require github.com/echterhof/rockstar-web-framework v0.0.0
 
-replace github.com/yourusername/rockstar => ../../..
+replace github.com/echterhof/rockstar-web-framework => ../../..

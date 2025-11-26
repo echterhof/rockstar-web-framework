@@ -2,150 +2,48 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
-	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-	// Create a pipeline engine
-	engine := pkg.NewPipelineEngine()
-
-	// Example 1: Basic pipeline that processes data
-	basicPipeline := pkg.PipelineConfig{
-		Name: "data-processor",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Processing data in pipeline...")
-
-			// Access request data
-			if ctx.Request() != nil {
-				fmt.Printf("Request Method: %s\n", ctx.Request().Method)
-			}
-
-			// Access database (if available)
-			if ctx.DB() != nil {
-				fmt.Println("Database access available")
-			}
-
-			// Access session (if available)
-			if ctx.Session() != nil {
-				fmt.Println("Session access available")
-			}
-
-			// Continue to next step
-			return pkg.PipelineResultContinue, nil
+	// Configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
 		},
-		Enabled: true,
 	}
 
-	engine.Register(basicPipeline)
+	// Create framework instance
+	app, err := pkg.New(config)
+	if err != nil {
+		log.Fatalf("Failed to create framework: %v", err)
+	}
 
-	// Example 2: Pipeline that chains to another pipeline
+	// Create pipeline engine
+	engine := pkg.NewPipelineEngine()
+
+	// Pipeline 1: Data validation pipeline
 	validationPipeline := pkg.PipelineConfig{
 		Name: "validator",
 		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Validating request...")
-
-			// Perform validation
-			if ctx.Request() == nil {
-				return pkg.PipelineResultClose, fmt.Errorf("invalid request")
+			// Validate request data
+			queryParams := ctx.Query()
+			data, exists := queryParams["data"]
+			if !exists || data == "" {
+				return pkg.PipelineResultClose, fmt.Errorf("data parameter is required")
 			}
 
-			// Chain to data processor
-			return pkg.PipelineResultChain, nil
-		},
-		NextPipeline: "data-processor",
-		Enabled:      true,
-	}
-
-	engine.Register(validationPipeline)
-
-	// Example 3: Pipeline that executes a view
-	renderPipeline := pkg.PipelineConfig{
-		Name: "renderer",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Preparing data for rendering...")
-
-			// Process data and prepare for view
-			return pkg.PipelineResultView, nil
-		},
-		ViewHandler: func(ctx pkg.Context) error {
-			fmt.Println("Rendering view...")
-			return ctx.String(200, "Hello from pipeline view!")
-		},
-		Enabled: true,
-	}
-
-	engine.Register(renderPipeline)
-
-	// Example 4: Pipeline with timeout
-	slowPipeline := pkg.PipelineConfig{
-		Name: "slow-processor",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Starting slow processing...")
-			time.Sleep(100 * time.Millisecond)
-			fmt.Println("Slow processing complete")
-			return pkg.PipelineResultContinue, nil
-		},
-		Enabled: true,
-		Timeout: 5000, // 5 second timeout
-	}
-
-	engine.Register(slowPipeline)
-
-	// Example 5: Async pipeline for background processing
-	backgroundPipeline := pkg.PipelineConfig{
-		Name: "background-task",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Running background task...")
-			time.Sleep(50 * time.Millisecond)
-			fmt.Println("Background task complete")
-			return pkg.PipelineResultContinue, nil
-		},
-		Enabled: true,
-		Async:   true,
-	}
-
-	engine.Register(backgroundPipeline)
-
-	// Example 6: Pipeline for form data checking
-	formValidationPipeline := pkg.PipelineConfig{
-		Name: "form-validator",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Validating form data...")
-
-			// Check form values
-			username := ctx.FormValue("username")
-			if username == "" {
-				return pkg.PipelineResultClose, fmt.Errorf("username is required")
-			}
-
-			// Check uploaded files
-			file, err := ctx.FormFile("avatar")
-			if err == nil && file != nil {
-				fmt.Printf("File uploaded: %s\n", file.Filename)
-			}
-
-			return pkg.PipelineResultContinue, nil
-		},
-		Enabled: true,
-	}
-
-	engine.Register(formValidationPipeline)
-
-	// Example 7: Pipeline for API rate limiting
-	rateLimitPipeline := pkg.PipelineConfig{
-		Name: "rate-limiter",
-		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Checking rate limits...")
-
-			// Access cache for rate limiting
-			if ctx.Cache() != nil {
-				// Check rate limit from cache
-				fmt.Println("Rate limit check passed")
+			// Log validation success
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Data validated successfully")
 			}
 
 			return pkg.PipelineResultContinue, nil
@@ -153,233 +51,404 @@ func main() {
 		Enabled:  true,
 		Priority: 100, // High priority - execute first
 	}
+	engine.Register(validationPipeline)
 
-	engine.Register(rateLimitPipeline)
-
-	// Example 8: Pipeline for logging
-	loggingPipeline := pkg.PipelineConfig{
-		Name: "logger",
+	// Pipeline 2: Data transformation pipeline
+	transformPipeline := pkg.PipelineConfig{
+		Name: "transformer",
 		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Logging request...")
+			// Get data from query
+			queryParams := ctx.Query()
+			data, _ := queryParams["data"]
 
+			// Transform data (uppercase)
+			transformed := strings.ToUpper(data)
+
+			// Log transformation
 			if ctx.Logger() != nil {
-				ctx.Logger().Info("Request processed")
+				ctx.Logger().Info(fmt.Sprintf("Transformed: %s -> %s", data, transformed))
 			}
 
 			return pkg.PipelineResultContinue, nil
 		},
 		Enabled:  true,
-		Priority: 1, // Low priority - execute last
+		Priority: 50,
 	}
+	engine.Register(transformPipeline)
 
-	engine.Register(loggingPipeline)
+	// Pipeline 3: Data enrichment pipeline
+	enrichmentPipeline := pkg.PipelineConfig{
+		Name: "enricher",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			// Get data from query
+			queryParams := ctx.Query()
+			data, _ := queryParams["data"]
 
-	// Example 9: Using the pipeline builder
-	builderPipeline := pkg.NewPipelineBuilder("builder-example").
-		WithHandler(func(ctx pkg.Context) (pkg.PipelineResult, error) {
-			fmt.Println("Pipeline created with builder")
+			// Enrich with metadata
+			enriched := map[string]interface{}{
+				"data":      data,
+				"length":    len(data),
+				"timestamp": time.Now().Unix(),
+				"processed": true,
+			}
+
+			// Log enrichment
+			if ctx.Logger() != nil {
+				ctx.Logger().Info(fmt.Sprintf("Enriched data: %v", enriched))
+			}
+
 			return pkg.PipelineResultContinue, nil
-		}).
-		WithPriority(50).
-		WithTimeout(3000).
-		Build()
-
-	engine.Register(builderPipeline)
-
-	// Demonstrate pipeline execution
-	fmt.Println("\n=== Demonstrating Pipeline Execution ===\n")
-
-	// Create a mock context for demonstration
-	ctx := createDemoContext()
-
-	// Execute single pipeline
-	fmt.Println("1. Executing single pipeline:")
-	result, err := engine.Execute(ctx, "data-processor")
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %v\n\n", result)
-	}
-
-	// Execute chain of pipelines
-	fmt.Println("2. Executing pipeline chain:")
-	result, err = engine.ExecuteChain(ctx, []string{"rate-limiter", "form-validator", "data-processor"})
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %v\n\n", result)
-	}
-
-	// Execute async pipeline
-	fmt.Println("3. Executing async pipeline:")
-	err = engine.ExecuteAsync(ctx, "background-task")
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	}
-	fmt.Println("Async pipeline started (running in background)\n")
-
-	// Execute multiple pipelines concurrently
-	fmt.Println("4. Executing multiplexed pipelines:")
-	results, errors := engine.ExecuteMultiplex(ctx, []string{"data-processor", "slow-processor", "logger"})
-	for i, result := range results {
-		if errors[i] != nil {
-			log.Printf("Pipeline %d error: %v\n", i, errors[i])
-		} else {
-			fmt.Printf("Pipeline %d result: %v\n", i, result)
-		}
-	}
-	fmt.Println()
-
-	// Execute pipeline with chaining
-	fmt.Println("5. Executing pipeline with automatic chaining:")
-	result, err = engine.Execute(ctx, "validator")
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %v\n\n", result)
-	}
-
-	// Execute pipeline with view
-	fmt.Println("6. Executing pipeline with view:")
-	result, err = engine.Execute(ctx, "renderer")
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Result: %v\n\n", result)
-	}
-
-	// Wait for all async pipelines to complete
-	fmt.Println("7. Waiting for async pipelines to complete:")
-	err = engine.WaitAll()
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-	} else {
-		fmt.Println("All async pipelines completed\n")
-	}
-
-	// List all registered pipelines
-	fmt.Println("8. Listing all registered pipelines:")
-	pipelines := engine.List()
-	for _, p := range pipelines {
-		fmt.Printf("  - %s (Priority: %d, Enabled: %v)\n", p.Name, p.Priority, p.Enabled)
-	}
-
-	fmt.Println("\n=== Pipeline Examples Complete ===")
-}
-
-// createDemoContext creates a mock context for demonstration
-func createDemoContext() pkg.Context {
-	// In a real application, this would be created from an actual HTTP request
-	// For demonstration, we create a minimal context
-	req := &pkg.Request{
-		Method: "POST",
-		Params: make(map[string]string),
-		Query:  make(map[string]string),
-		Form: map[string]string{
-			"username": "demo-user",
 		},
+		Enabled:  true,
+		Priority: 25,
 	}
+	engine.Register(enrichmentPipeline)
 
-	resp := &demoResponseWriter{}
+	// Pipeline 4: Slow processing pipeline with timeout
+	slowPipeline := pkg.PipelineConfig{
+		Name: "slow-processor",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			// Simulate slow processing
+			queryParams := ctx.Query()
+			delay, exists := queryParams["delay"]
+			if exists && delay != "" {
+				if ms, err := strconv.Atoi(delay); err == nil {
+					time.Sleep(time.Duration(ms) * time.Millisecond)
+				}
+			}
 
-	return pkg.NewContext(req, resp, nil)
-}
-
-// demoResponseWriter is a minimal response writer for demonstration
-type demoResponseWriter struct {
-	statusCode int
-	body       []byte
-	headers    map[string][]string
-}
-
-func (d *demoResponseWriter) Header() http.Header {
-	if d.headers == nil {
-		d.headers = make(map[string][]string)
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Slow processing complete")
+			}
+			return pkg.PipelineResultContinue, nil
+		},
+		Enabled: true,
+		Timeout: 2000, // 2 second timeout
 	}
-	return http.Header(d.headers)
-}
+	engine.Register(slowPipeline)
 
-func (d *demoResponseWriter) WriteHeader(statusCode int) {
-	d.statusCode = statusCode
-}
+	// Pipeline 5: Async background task pipeline
+	backgroundPipeline := pkg.PipelineConfig{
+		Name: "background-task",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			// Simulate background processing
+			time.Sleep(100 * time.Millisecond)
 
-func (d *demoResponseWriter) Write(data []byte) (int, error) {
-	d.body = append(d.body, data...)
-	return len(data), nil
-}
+			// Log completion
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Background task completed")
+			}
 
-func (d *demoResponseWriter) SetHeader(key, value string) {
-	if d.headers == nil {
-		d.headers = make(map[string][]string)
+			return pkg.PipelineResultContinue, nil
+		},
+		Enabled: true,
+		Async:   true,
 	}
-	d.headers[key] = []string{value}
-}
+	engine.Register(backgroundPipeline)
 
-func (d *demoResponseWriter) GetHeader(key string) string {
-	if d.headers == nil {
-		return ""
+	// Pipeline 6: Error handling pipeline
+	errorHandlerPipeline := pkg.PipelineConfig{
+		Name: "error-handler",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			// Check query for error trigger
+			queryParams := ctx.Query()
+			if triggerError, exists := queryParams["trigger_error"]; exists && triggerError == "true" {
+				return pkg.PipelineResultClose, fmt.Errorf("simulated pipeline error")
+			}
+
+			return pkg.PipelineResultContinue, nil
+		},
+		Enabled:  true,
+		Priority: 10,
 	}
-	if vals, ok := d.headers[key]; ok && len(vals) > 0 {
-		return vals[0]
+	engine.Register(errorHandlerPipeline)
+
+	// Pipeline 7: Chaining pipeline
+	chainStartPipeline := pkg.PipelineConfig{
+		Name: "chain-start",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Chain step: start")
+			}
+			return pkg.PipelineResultChain, nil
+		},
+		NextPipeline: "chain-middle",
+		Enabled:      true,
 	}
-	return ""
-}
+	engine.Register(chainStartPipeline)
 
-func (d *demoResponseWriter) WriteJSON(statusCode int, data interface{}) error {
-	d.statusCode = statusCode
-	return nil
-}
+	chainMiddlePipeline := pkg.PipelineConfig{
+		Name: "chain-middle",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Chain step: middle")
+			}
+			return pkg.PipelineResultChain, nil
+		},
+		NextPipeline: "chain-end",
+		Enabled:      true,
+	}
+	engine.Register(chainMiddlePipeline)
 
-func (d *demoResponseWriter) WriteXML(statusCode int, data interface{}) error {
-	d.statusCode = statusCode
-	return nil
-}
+	chainEndPipeline := pkg.PipelineConfig{
+		Name: "chain-end",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Chain step: end")
+			}
+			return pkg.PipelineResultContinue, nil
+		},
+		Enabled: true,
+	}
+	engine.Register(chainEndPipeline)
 
-func (d *demoResponseWriter) WriteHTML(statusCode int, template string, data interface{}) error {
-	d.statusCode = statusCode
-	return nil
-}
+	// Pipeline 8: View rendering pipeline
+	viewPipeline := pkg.PipelineConfig{
+		Name: "view-renderer",
+		Handler: func(ctx pkg.Context) (pkg.PipelineResult, error) {
+			// Prepare data for view
+			if ctx.Logger() != nil {
+				ctx.Logger().Info("Preparing view data")
+			}
+			return pkg.PipelineResultView, nil
+		},
+		ViewHandler: func(ctx pkg.Context) error {
+			data := map[string]interface{}{
+				"title":   "Pipeline View",
+				"message": "Rendered from pipeline",
+			}
+			return ctx.JSON(200, data)
+		},
+		Enabled: true,
+	}
+	engine.Register(viewPipeline)
 
-func (d *demoResponseWriter) WriteString(statusCode int, message string) error {
-	d.statusCode = statusCode
-	d.body = []byte(message)
-	fmt.Printf("Response: %s\n", message)
-	return nil
-}
+	// Get router
+	router := app.Router()
 
-func (d *demoResponseWriter) SetCookie(cookie *pkg.Cookie) error {
-	return nil
-}
+	// Route 1: Execute single pipeline
+	router.GET("/pipeline/:name", func(ctx pkg.Context) error {
+		name := ctx.Params()["name"]
 
-func (d *demoResponseWriter) Flush() error {
-	return nil
-}
+		result, err := engine.Execute(ctx, name)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error":    err.Error(),
+				"pipeline": name,
+			})
+		}
 
-func (d *demoResponseWriter) Close() error {
-	return nil
-}
+		return ctx.JSON(200, map[string]interface{}{
+			"pipeline": name,
+			"result":   result,
+			"message":  "Pipeline executed successfully",
+		})
+	})
 
-func (d *demoResponseWriter) SetContentType(contentType string) {
-	d.SetHeader("Content-Type", contentType)
-}
+	// Route 2: Execute pipeline chain
+	router.GET("/chain", func(ctx pkg.Context) error {
+		// Execute chain of pipelines
+		pipelines := []string{"validator", "transformer", "enricher"}
 
-func (d *demoResponseWriter) SetTemplateManager(tm pkg.TemplateManager) {
-	// Not needed for demo
-}
+		result, err := engine.ExecuteChain(ctx, pipelines)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error":     err.Error(),
+				"pipelines": pipelines,
+			})
+		}
 
-func (d *demoResponseWriter) Size() int64 {
-	return int64(len(d.body))
-}
+		return ctx.JSON(200, map[string]interface{}{
+			"pipelines": pipelines,
+			"result":    result,
+			"message":   "Pipeline chain executed successfully",
+		})
+	})
 
-func (d *demoResponseWriter) Status() int {
-	return d.statusCode
-}
+	// Route 3: Execute async pipeline
+	router.GET("/async", func(ctx pkg.Context) error {
+		err := engine.ExecuteAsync(ctx, "background-task")
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
 
-func (d *demoResponseWriter) Written() bool {
-	return len(d.body) > 0
-}
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Background task started",
+			"status":  "running",
+		})
+	})
 
-func (d *demoResponseWriter) WriteStream(statusCode int, contentType string, reader io.Reader) error {
-	d.statusCode = statusCode
-	return nil
+	// Route 4: Execute multiple pipelines concurrently
+	router.GET("/multiplex", func(ctx pkg.Context) error {
+		pipelines := []string{"validator", "transformer", "enricher"}
+
+		results, errors := engine.ExecuteMultiplex(ctx, pipelines)
+
+		// Collect results
+		pipelineResults := make([]map[string]interface{}, len(pipelines))
+		for i, name := range pipelines {
+			pipelineResults[i] = map[string]interface{}{
+				"pipeline": name,
+				"result":   results[i],
+			}
+			if errors[i] != nil {
+				pipelineResults[i]["error"] = errors[i].Error()
+			}
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"pipelines": pipelineResults,
+		})
+	})
+
+	// Route 5: Test pipeline timeout
+	router.GET("/timeout", func(ctx pkg.Context) error {
+		result, err := engine.Execute(ctx, "slow-processor")
+
+		if err != nil {
+			return ctx.JSON(408, map[string]interface{}{
+				"error":    err.Error(),
+				"pipeline": "slow-processor",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"pipeline": "slow-processor",
+			"result":   result,
+			"message":  "Slow processing completed",
+		})
+	})
+
+	// Route 6: Test automatic chaining
+	router.GET("/auto-chain", func(ctx pkg.Context) error {
+		result, err := engine.Execute(ctx, "chain-start")
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"result":  result,
+			"message": "Automatic chaining completed (check logs for chain steps)",
+		})
+	})
+
+	// Route 7: Test view pipeline
+	router.GET("/view", func(ctx pkg.Context) error {
+		// Execute view pipeline (it will handle the response)
+		_, err := engine.Execute(ctx, "view-renderer")
+		return err
+	})
+
+	// Route 8: List all pipelines
+	router.GET("/pipelines", func(ctx pkg.Context) error {
+		pipelines := engine.List()
+
+		pipelineInfo := make([]map[string]interface{}, len(pipelines))
+		for i, pl := range pipelines {
+			pipelineInfo[i] = map[string]interface{}{
+				"name":     pl.Name,
+				"enabled":  pl.Enabled,
+				"priority": pl.Priority,
+				"async":    pl.Async,
+				"timeout":  pl.Timeout,
+			}
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"count":     len(pipelines),
+			"pipelines": pipelineInfo,
+		})
+	})
+
+	// Route 9: Enable/disable pipeline
+	router.POST("/pipeline/:name/:action", func(ctx pkg.Context) error {
+		name := ctx.Params()["name"]
+		action := ctx.Params()["action"]
+
+		var err error
+		switch action {
+		case "enable":
+			err = engine.Enable(name)
+		case "disable":
+			err = engine.Disable(name)
+		default:
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Invalid action. Use 'enable' or 'disable'",
+			})
+		}
+
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"pipeline": name,
+			"action":   action,
+			"message":  fmt.Sprintf("Pipeline %s %sd", name, action),
+		})
+	})
+
+	// Route 10: Error handling demonstration
+	router.GET("/error-handling", func(ctx pkg.Context) error {
+		result, err := engine.Execute(ctx, "error-handler")
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error":   err.Error(),
+				"handled": true,
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"result":  result,
+			"message": "No errors detected",
+		})
+	})
+
+	// Startup message
+	fmt.Printf("🎸 Rockstar Web Framework - Pipeline Example\n")
+	fmt.Printf("==============================================\n\n")
+	fmt.Printf("Listening on :8080\n\n")
+	fmt.Printf("Available endpoints:\n")
+	fmt.Printf("  GET  /pipeline/:name                - Execute single pipeline\n")
+	fmt.Printf("  GET  /chain                         - Execute pipeline chain\n")
+	fmt.Printf("  GET  /async                         - Execute async pipeline\n")
+	fmt.Printf("  GET  /multiplex                     - Execute multiple pipelines concurrently\n")
+	fmt.Printf("  GET  /timeout                       - Test pipeline timeout\n")
+	fmt.Printf("  GET  /auto-chain                    - Test automatic chaining\n")
+	fmt.Printf("  GET  /view                          - Test view pipeline\n")
+	fmt.Printf("  GET  /pipelines                     - List all pipelines\n")
+	fmt.Printf("  POST /pipeline/:name/:action        - Enable/disable pipeline\n")
+	fmt.Printf("  GET  /error-handling                - Test error handling\n\n")
+	fmt.Printf("Examples:\n")
+	fmt.Printf("  curl 'http://localhost:8080/pipeline/validator?data=test'\n")
+	fmt.Printf("  curl 'http://localhost:8080/chain?data=hello'\n")
+	fmt.Printf("  curl http://localhost:8080/async\n")
+	fmt.Printf("  curl 'http://localhost:8080/multiplex?data=test'\n")
+	fmt.Printf("  curl 'http://localhost:8080/timeout?delay=500'\n")
+	fmt.Printf("  curl 'http://localhost:8080/timeout?delay=3000'  # Will timeout\n")
+	fmt.Printf("  curl http://localhost:8080/auto-chain\n")
+	fmt.Printf("  curl http://localhost:8080/view\n")
+	fmt.Printf("  curl http://localhost:8080/pipelines\n")
+	fmt.Printf("  curl -X POST http://localhost:8080/pipeline/validator/disable\n")
+	fmt.Printf("  curl 'http://localhost:8080/error-handling?trigger_error=true'\n\n")
+	fmt.Printf("Pipeline Features:\n")
+	fmt.Printf("  - Sequential execution with priority ordering\n")
+	fmt.Printf("  - Pipeline chaining (automatic and manual)\n")
+	fmt.Printf("  - Async execution with goroutines\n")
+	fmt.Printf("  - Concurrent execution (multiplexing)\n")
+	fmt.Printf("  - Timeout support\n")
+	fmt.Printf("  - Error handling and propagation\n")
+	fmt.Printf("  - View rendering integration\n")
+	fmt.Printf("  - Dynamic enable/disable\n\n")
+
+	// Start server
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
 }

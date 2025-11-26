@@ -396,3 +396,262 @@ func createMockPluginManagerForConfigTest(t *testing.T) PluginManager {
 		config,
 	)
 }
+
+// Unit tests for plugin config defaults
+
+func TestPluginConfig_ApplyDefaults(t *testing.T) {
+	t.Run("initializes nil Config to empty map", func(t *testing.T) {
+		config := PluginConfig{
+			Path: "/path/to/plugin",
+		}
+
+		config.ApplyDefaults()
+
+		if config.Config == nil {
+			t.Error("Expected Config to be initialized to empty map, got nil")
+		}
+
+		if len(config.Config) != 0 {
+			t.Errorf("Expected Config to be empty map, got length %d", len(config.Config))
+		}
+	})
+
+	t.Run("preserves existing Config values", func(t *testing.T) {
+		existingConfig := map[string]interface{}{
+			"key1": "value1",
+			"key2": 42,
+		}
+
+		config := PluginConfig{
+			Path:   "/path/to/plugin",
+			Config: existingConfig,
+		}
+
+		config.ApplyDefaults()
+
+		if config.Config == nil {
+			t.Error("Expected Config to be preserved, got nil")
+		}
+
+		if len(config.Config) != 2 {
+			t.Errorf("Expected Config to have 2 entries, got %d", len(config.Config))
+		}
+
+		if config.Config["key1"] != "value1" {
+			t.Errorf("Expected key1 to be 'value1', got %v", config.Config["key1"])
+		}
+
+		if config.Config["key2"] != 42 {
+			t.Errorf("Expected key2 to be 42, got %v", config.Config["key2"])
+		}
+	})
+
+	t.Run("initializes nil CustomPermissions to empty map", func(t *testing.T) {
+		config := PluginConfig{
+			Path: "/path/to/plugin",
+		}
+
+		config.ApplyDefaults()
+
+		if config.Permissions.CustomPermissions == nil {
+			t.Error("Expected CustomPermissions to be initialized to empty map, got nil")
+		}
+
+		if len(config.Permissions.CustomPermissions) != 0 {
+			t.Errorf("Expected CustomPermissions to be empty map, got length %d", len(config.Permissions.CustomPermissions))
+		}
+	})
+
+	t.Run("preserves existing CustomPermissions", func(t *testing.T) {
+		customPerms := map[string]bool{
+			"custom1": true,
+			"custom2": false,
+		}
+
+		config := PluginConfig{
+			Path: "/path/to/plugin",
+			Permissions: PluginPermissions{
+				AllowDatabase:     true,
+				CustomPermissions: customPerms,
+			},
+		}
+
+		config.ApplyDefaults()
+
+		if config.Permissions.CustomPermissions == nil {
+			t.Error("Expected CustomPermissions to be preserved, got nil")
+		}
+
+		if len(config.Permissions.CustomPermissions) != 2 {
+			t.Errorf("Expected CustomPermissions to have 2 entries, got %d", len(config.Permissions.CustomPermissions))
+		}
+
+		if !config.Permissions.AllowDatabase {
+			t.Error("Expected AllowDatabase to be preserved as true")
+		}
+	})
+
+	t.Run("Priority defaults to 0", func(t *testing.T) {
+		config := PluginConfig{
+			Path: "/path/to/plugin",
+		}
+
+		config.ApplyDefaults()
+
+		if config.Priority != 0 {
+			t.Errorf("Expected Priority to default to 0, got %d", config.Priority)
+		}
+	})
+
+	t.Run("preserves non-zero Priority", func(t *testing.T) {
+		config := PluginConfig{
+			Path:     "/path/to/plugin",
+			Priority: 10,
+		}
+
+		config.ApplyDefaults()
+
+		if config.Priority != 10 {
+			t.Errorf("Expected Priority to be preserved as 10, got %d", config.Priority)
+		}
+	})
+}
+
+func TestPluginsConfig_ApplyDefaults(t *testing.T) {
+	t.Run("defaults Directory to ./plugins when empty", func(t *testing.T) {
+		config := PluginsConfig{}
+
+		config.ApplyDefaults()
+
+		if config.Directory != "./plugins" {
+			t.Errorf("Expected Directory to default to './plugins', got '%s'", config.Directory)
+		}
+	})
+
+	t.Run("preserves non-empty Directory", func(t *testing.T) {
+		config := PluginsConfig{
+			Directory: "/custom/plugins",
+		}
+
+		config.ApplyDefaults()
+
+		if config.Directory != "/custom/plugins" {
+			t.Errorf("Expected Directory to be preserved as '/custom/plugins', got '%s'", config.Directory)
+		}
+	})
+
+	t.Run("initializes nil Plugins to empty slice", func(t *testing.T) {
+		config := PluginsConfig{}
+
+		config.ApplyDefaults()
+
+		if config.Plugins == nil {
+			t.Error("Expected Plugins to be initialized to empty slice, got nil")
+		}
+
+		if len(config.Plugins) != 0 {
+			t.Errorf("Expected Plugins to be empty slice, got length %d", len(config.Plugins))
+		}
+	})
+
+	t.Run("preserves existing Plugins", func(t *testing.T) {
+		plugins := []PluginConfigEntry{
+			{
+				Name:    "plugin1",
+				Path:    "/path/to/plugin1",
+				Enabled: true,
+			},
+			{
+				Name:    "plugin2",
+				Path:    "/path/to/plugin2",
+				Enabled: false,
+			},
+		}
+
+		config := PluginsConfig{
+			Plugins: plugins,
+		}
+
+		config.ApplyDefaults()
+
+		if config.Plugins == nil {
+			t.Error("Expected Plugins to be preserved, got nil")
+		}
+
+		if len(config.Plugins) != 2 {
+			t.Errorf("Expected Plugins to have 2 entries, got %d", len(config.Plugins))
+		}
+
+		if config.Plugins[0].Name != "plugin1" {
+			t.Errorf("Expected first plugin name to be 'plugin1', got '%s'", config.Plugins[0].Name)
+		}
+
+		if config.Plugins[1].Name != "plugin2" {
+			t.Errorf("Expected second plugin name to be 'plugin2', got '%s'", config.Plugins[1].Name)
+		}
+	})
+
+	t.Run("applies all defaults together", func(t *testing.T) {
+		config := PluginsConfig{}
+
+		config.ApplyDefaults()
+
+		if config.Directory != "./plugins" {
+			t.Errorf("Expected Directory to default to './plugins', got '%s'", config.Directory)
+		}
+
+		if config.Plugins == nil {
+			t.Error("Expected Plugins to be initialized to empty slice, got nil")
+		}
+
+		if len(config.Plugins) != 0 {
+			t.Errorf("Expected Plugins to be empty slice, got length %d", len(config.Plugins))
+		}
+	})
+}
+
+func TestPluginConfig_DefaultsInLoadPlugin(t *testing.T) {
+	t.Run("LoadPlugin applies defaults before using config", func(t *testing.T) {
+		// Create a mock plugin manager
+		logger := &MockLogger{}
+		metrics := &MockMetrics{}
+
+		registry := NewPluginRegistry()
+		loader := NewMockPluginLoader()
+		hookSystem := NewHookSystem(logger, metrics)
+		eventBus := NewEventBus(logger)
+		permChecker := NewPermissionChecker(logger)
+
+		router := &MockRouter{}
+		database := &MockDatabase{}
+		cache := &MockCache{}
+		configMgr := NewConfigManager()
+
+		manager := NewPluginManager(
+			registry,
+			loader,
+			hookSystem,
+			eventBus,
+			permChecker,
+			logger,
+			metrics,
+			router,
+			database,
+			cache,
+			configMgr,
+		)
+
+		// Create a config with nil Config map
+		config := PluginConfig{
+			Enabled: true,
+			Path:    "./test-plugin",
+		}
+
+		// LoadPlugin should apply defaults
+		// Note: This will fail to load the actual plugin, but we're testing that
+		// defaults are applied before the load attempt
+		_ = manager.LoadPlugin("./test-plugin", config)
+
+		// The test passes if no panic occurs from nil map access
+	})
+}

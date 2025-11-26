@@ -445,9 +445,9 @@ func newMockDB() *mockDB {
 func (m *mockDB) CheckRateLimit(key string, limit int, window time.Duration) (bool, error) {
 	count, exists := m.rateLimits[key]
 	if !exists {
-		return true, nil
+		return false, nil // Not exceeded
 	}
-	return count < limit, nil
+	return count >= limit, nil // True if exceeded
 }
 
 func (m *mockDB) IncrementRateLimit(key string, window time.Duration) error {
@@ -460,6 +460,7 @@ func (m *mockDB) Connect(config DatabaseConfig) error                         { 
 func (m *mockDB) Close() error                                                { return nil }
 func (m *mockDB) Ping() error                                                 { return nil }
 func (m *mockDB) Stats() DatabaseStats                                        { return DatabaseStats{} }
+func (m *mockDB) IsConnected() bool                                           { return true }
 func (m *mockDB) Query(query string, args ...interface{}) (*sql.Rows, error)  { return nil, nil }
 func (m *mockDB) QueryRow(query string, args ...interface{}) *sql.Row         { return nil }
 func (m *mockDB) Exec(query string, args ...interface{}) (sql.Result, error)  { return nil, nil }

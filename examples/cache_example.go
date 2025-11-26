@@ -2,155 +2,496 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-	fmt.Println("=== Rockstar Web Framework - Cache Example ===\n")
+	// ============================================================================
+	// Configuration Setup
+	// ============================================================================
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
+		},
+		CacheConfig: pkg.CacheConfig{
+			Type:       "memory",
+			MaxSize:    50 * 1024 * 1024, // 50 MB
+			DefaultTTL: 5 * time.Minute,
+		},
+	}
 
-	// Create a new cache manager
-	cache := pkg.NewCacheManager(pkg.CacheConfig{})
+	// ============================================================================
+	// Framework Initialization
+	// ============================================================================
+	app, err := pkg.New(config)
+	if err != nil {
+		log.Fatalf("Failed to create framework: %v", err)
+	}
 
-	// Example 1: Basic cache operations
-	fmt.Println("1. Basic Cache Operations:")
-	cache.Set("user:123", map[string]interface{}{
+	// ============================================================================
+	// Route Registration
+	// ============================================================================
+	router := app.Router()
+
+	// Basic cache operations
+	router.GET("/api/cache/set", setCacheHandler)
+	router.GET("/api/cache/get/:key", getCacheHandler)
+	router.GET("/api/cache/delete/:key", deleteCacheHandler)
+	router.GET("/api/cache/exists/:key", existsCacheHandler)
+
+	// TTL management
+	router.GET("/api/cache/ttl/:key", getTTLHandler)
+	router.GET("/api/cache/expire/:key", expireCacheHandler)
+
+	// Multiple operations
+	router.GET("/api/cache/set-multiple", setMultipleHandler)
+	router.GET("/api/cache/get-multiple", getMultipleHandler)
+
+	// Numeric operations
+	router.GET("/api/cache/increment/:key", incrementHandler)
+	router.GET("/api/cache/decrement/:key", decrementHandler)
+
+	// Cache invalidation strategies
+	router.GET("/api/cache/invalidate", invalidateHandler)
+	router.GET("/api/cache/clear", clearCacheHandler)
+
+	// Request-level caching
+	router.GET("/api/cache/request-cache", requestCacheHandler)
+
+	// Cache statistics
+	router.GET("/api/cache/stats", cacheStatsHandler)
+
+	// ============================================================================
+	// Server Startup
+	// ============================================================================
+	fmt.Println("🎸 Rockstar Web Framework - Cache Example")
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+	fmt.Println("Server listening on: http://localhost:8080")
+	fmt.Println()
+	fmt.Println("Try these commands:")
+	fmt.Println("  # Basic cache operations")
+	fmt.Println("  curl http://localhost:8080/api/cache/set")
+	fmt.Println("  curl http://localhost:8080/api/cache/get/user:123")
+	fmt.Println("  curl http://localhost:8080/api/cache/exists/user:123")
+	fmt.Println("  curl http://localhost:8080/api/cache/delete/user:123")
+	fmt.Println()
+	fmt.Println("  # TTL management")
+	fmt.Println("  curl http://localhost:8080/api/cache/ttl/user:123")
+	fmt.Println("  curl http://localhost:8080/api/cache/expire/user:123")
+	fmt.Println()
+	fmt.Println("  # Multiple operations")
+	fmt.Println("  curl http://localhost:8080/api/cache/set-multiple")
+	fmt.Println("  curl http://localhost:8080/api/cache/get-multiple")
+	fmt.Println()
+	fmt.Println("  # Numeric operations")
+	fmt.Println("  curl http://localhost:8080/api/cache/increment/counter")
+	fmt.Println("  curl http://localhost:8080/api/cache/decrement/counter")
+	fmt.Println()
+	fmt.Println("  # Cache invalidation")
+	fmt.Println("  curl http://localhost:8080/api/cache/invalidate")
+	fmt.Println("  curl http://localhost:8080/api/cache/clear")
+	fmt.Println()
+	fmt.Println("  # Request-level caching")
+	fmt.Println("  curl http://localhost:8080/api/cache/request-cache")
+	fmt.Println()
+	fmt.Println("  # Cache statistics")
+	fmt.Println("  curl http://localhost:8080/api/cache/stats")
+	fmt.Println()
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
+}
+
+// ============================================================================
+// Handler Functions - Basic Cache Operations
+// ============================================================================
+
+// setCacheHandler demonstrates setting values in cache with TTL
+func setCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	// Set a simple value with 1 minute TTL
+	err := cache.Set("user:123", map[string]interface{}{
+		"id":    123,
 		"name":  "John Doe",
 		"email": "john@example.com",
-		"role":  "admin",
-	}, 0)
+	}, 1*time.Minute)
 
-	user, err := cache.Get("user:123")
 	if err != nil {
-		fmt.Printf("Error: %v\n", err)
-	} else {
-		fmt.Printf("Retrieved user: %v\n", user)
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to set cache",
+		})
 	}
 
-	// Example 2: Cache with TTL
-	fmt.Println("\n2. Cache with TTL:")
-	cache.Set("session:abc123", "session-data", 5*time.Second)
+	// Set a value with default TTL (from config: 5 minutes)
+	err = cache.Set("product:456", map[string]interface{}{
+		"id":    456,
+		"name":  "Guitar",
+		"price": 599.99,
+	}, 0) // 0 means use default TTL
 
-	ttl, _ := cache.TTL("session:abc123")
-	fmt.Printf("Session TTL: %v\n", ttl)
-
-	// Example 3: Increment/Decrement operations
-	fmt.Println("\n3. Counter Operations:")
-	cache.Increment("page:views", 1)
-	cache.Increment("page:views", 5)
-	views, _ := cache.Get("page:views")
-	fmt.Printf("Page views: %v\n", views)
-
-	cache.Decrement("page:views", 2)
-	views, _ = cache.Get("page:views")
-	fmt.Printf("Page views after decrement: %v\n", views)
-
-	// Example 4: Batch operations
-	fmt.Println("\n4. Batch Operations:")
-	items := map[string]interface{}{
-		"product:1": map[string]interface{}{"name": "Laptop", "price": 999.99},
-		"product:2": map[string]interface{}{"name": "Mouse", "price": 29.99},
-		"product:3": map[string]interface{}{"name": "Keyboard", "price": 79.99},
-	}
-	cache.SetMultiple(items, 0)
-
-	products, _ := cache.GetMultiple([]string{"product:1", "product:2", "product:3"})
-	fmt.Printf("Retrieved %d products\n", len(products))
-	for key, value := range products {
-		fmt.Printf("  %s: %v\n", key, value)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to set cache with default TTL",
+		})
 	}
 
-	// Example 5: Pattern-based invalidation
-	fmt.Println("\n5. Pattern-based Invalidation:")
-	cache.Set("cache:user:1", "data1", 0)
-	cache.Set("cache:user:2", "data2", 0)
-	cache.Set("cache:product:1", "data3", 0)
-
-	fmt.Println("Before invalidation:")
-	fmt.Printf("  cache:user:1 exists: %v\n", cache.Exists("cache:user:1"))
-	fmt.Printf("  cache:user:2 exists: %v\n", cache.Exists("cache:user:2"))
-	fmt.Printf("  cache:product:1 exists: %v\n", cache.Exists("cache:product:1"))
-
-	cache.Invalidate("cache:user:*")
-
-	fmt.Println("After invalidating cache:user:*:")
-	fmt.Printf("  cache:user:1 exists: %v\n", cache.Exists("cache:user:1"))
-	fmt.Printf("  cache:user:2 exists: %v\n", cache.Exists("cache:user:2"))
-	fmt.Printf("  cache:product:1 exists: %v\n", cache.Exists("cache:product:1"))
-
-	// Example 6: Request-specific cache
-	fmt.Println("\n6. Request-specific Cache:")
-	reqCache := cache.GetRequestCache("request-xyz789")
-
-	// Store request-specific data
-	reqCache.Set("parsed_body", map[string]interface{}{
-		"action": "create",
-		"data":   "some data",
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache values set successfully",
+		"keys": []string{
+			"user:123 (TTL: 1 minute)",
+			"product:456 (TTL: default 5 minutes)",
+		},
 	})
-	reqCache.Set("user_permissions", []string{"read", "write", "delete"})
-	reqCache.Set("computed_value", 42)
-
-	fmt.Printf("Request cache size: %d bytes\n", reqCache.Size())
-	fmt.Printf("Request cache keys: %v\n", reqCache.Keys())
-
-	// Retrieve from request cache
-	parsedBody := reqCache.Get("parsed_body")
-	fmt.Printf("Parsed body: %v\n", parsedBody)
-
-	// Clear request cache when done
-	cache.ClearRequestCache("request-xyz789")
-	fmt.Println("Request cache cleared")
-
-	// Example 7: Cache expiration
-	fmt.Println("\n7. Cache Expiration:")
-	cache.Set("temp:data", "temporary", 2*time.Second)
-	fmt.Printf("temp:data exists: %v\n", cache.Exists("temp:data"))
-
-	fmt.Println("Waiting 3 seconds...")
-	time.Sleep(3 * time.Second)
-
-	fmt.Printf("temp:data exists after expiration: %v\n", cache.Exists("temp:data"))
-
-	// Example 8: Using cache in a handler context
-	fmt.Println("\n8. Cache in Handler Context:")
-	demonstrateCacheInHandler(cache)
-
-	fmt.Println("\n=== Cache Example Complete ===")
 }
 
-// demonstrateCacheInHandler shows how to use cache in a request handler
-func demonstrateCacheInHandler(cache pkg.CacheManager) {
-	// Simulate a request ID
-	requestID := "req-12345"
+// getCacheHandler demonstrates retrieving values from cache
+func getCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
 
-	// Get request-specific cache
-	reqCache := cache.GetRequestCache(requestID)
-
-	// Check if we have cached data
-	cachedResult := reqCache.Get("expensive_computation")
-	if cachedResult != nil {
-		fmt.Printf("Using cached result: %v\n", cachedResult)
-		return
+	value, err := cache.Get(key)
+	if err != nil {
+		if err == pkg.ErrCacheKeyNotFound {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "Cache key not found",
+				"key":     key,
+				"message": "The key does not exist or has expired",
+			})
+		}
+		if err == pkg.ErrCacheExpired {
+			return ctx.JSON(410, map[string]interface{}{
+				"error":   "Cache entry expired",
+				"key":     key,
+				"message": "The key existed but has expired",
+			})
+		}
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to get cache",
+		})
 	}
 
-	// Simulate expensive computation
-	fmt.Println("Performing expensive computation...")
-	result := computeExpensiveOperation()
-
-	// Cache the result for this request
-	reqCache.Set("expensive_computation", result)
-	fmt.Printf("Computed and cached result: %v\n", result)
-
-	// Also cache globally for other requests
-	cache.Set("global:expensive_computation", result, 5*time.Minute)
-
-	// Clean up request cache when done
-	defer cache.ClearRequestCache(requestID)
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache value retrieved successfully",
+		"key":     key,
+		"value":   value,
+	})
 }
 
-func computeExpensiveOperation() int {
-	// Simulate some work
-	time.Sleep(100 * time.Millisecond)
-	return 42
+// deleteCacheHandler demonstrates deleting values from cache
+func deleteCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	err := cache.Delete(key)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to delete cache",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache value deleted successfully",
+		"key":     key,
+	})
+}
+
+// existsCacheHandler demonstrates checking if a key exists in cache
+func existsCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	exists := cache.Exists(key)
+
+	return ctx.JSON(200, map[string]interface{}{
+		"key":    key,
+		"exists": exists,
+	})
+}
+
+// ============================================================================
+// Handler Functions - TTL Management
+// ============================================================================
+
+// getTTLHandler demonstrates getting the TTL of a cache entry
+func getTTLHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	ttl, err := cache.TTL(key)
+	if err != nil {
+		if err == pkg.ErrCacheKeyNotFound {
+			return ctx.JSON(404, map[string]interface{}{
+				"error": "Cache key not found",
+				"key":   key,
+			})
+		}
+		if err == pkg.ErrCacheExpired {
+			return ctx.JSON(410, map[string]interface{}{
+				"error": "Cache entry expired",
+				"key":   key,
+			})
+		}
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to get TTL",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"key":     key,
+		"ttl":     ttl.String(),
+		"seconds": int(ttl.Seconds()),
+	})
+}
+
+// expireCacheHandler demonstrates setting a new TTL for a cache entry
+func expireCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	// Set new TTL to 30 seconds
+	err := cache.Expire(key, 30*time.Second)
+	if err != nil {
+		if err == pkg.ErrCacheKeyNotFound {
+			return ctx.JSON(404, map[string]interface{}{
+				"error": "Cache key not found",
+				"key":   key,
+			})
+		}
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to set expiration",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache expiration updated",
+		"key":     key,
+		"new_ttl": "30 seconds",
+	})
+}
+
+// ============================================================================
+// Handler Functions - Multiple Operations
+// ============================================================================
+
+// setMultipleHandler demonstrates setting multiple cache values at once
+func setMultipleHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	items := map[string]interface{}{
+		"user:100": map[string]interface{}{"id": 100, "name": "Alice"},
+		"user:101": map[string]interface{}{"id": 101, "name": "Bob"},
+		"user:102": map[string]interface{}{"id": 102, "name": "Charlie"},
+	}
+
+	err := cache.SetMultiple(items, 2*time.Minute)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to set multiple cache values",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Multiple cache values set successfully",
+		"count":   len(items),
+		"keys":    []string{"user:100", "user:101", "user:102"},
+		"ttl":     "2 minutes",
+	})
+}
+
+// getMultipleHandler demonstrates getting multiple cache values at once
+func getMultipleHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	keys := []string{"user:100", "user:101", "user:102"}
+	values, err := cache.GetMultiple(keys)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to get multiple cache values",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Multiple cache values retrieved",
+		"count":   len(values),
+		"values":  values,
+	})
+}
+
+// ============================================================================
+// Handler Functions - Numeric Operations
+// ============================================================================
+
+// incrementHandler demonstrates incrementing a numeric cache value
+func incrementHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	// Increment by 1
+	newValue, err := cache.Increment(key, 1)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to increment cache value",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message":   "Cache value incremented",
+		"key":       key,
+		"new_value": newValue,
+	})
+}
+
+// decrementHandler demonstrates decrementing a numeric cache value
+func decrementHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+	key := ctx.Params()["key"]
+
+	// Decrement by 1
+	newValue, err := cache.Decrement(key, 1)
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to decrement cache value",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message":   "Cache value decremented",
+		"key":       key,
+		"new_value": newValue,
+	})
+}
+
+// ============================================================================
+// Handler Functions - Cache Invalidation Strategies
+// ============================================================================
+
+// invalidateHandler demonstrates pattern-based cache invalidation
+func invalidateHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	// Invalidate all user cache entries using wildcard pattern
+	err := cache.Invalidate("user:*")
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to invalidate cache",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache invalidated successfully",
+		"pattern": "user:*",
+		"note":    "All keys matching 'user:*' have been removed",
+	})
+}
+
+// clearCacheHandler demonstrates clearing all cache entries
+func clearCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	err := cache.Clear()
+	if err != nil {
+		return ctx.JSON(500, map[string]interface{}{
+			"error": "Failed to clear cache",
+		})
+	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "All cache entries cleared successfully",
+		"warning": "This removes ALL cached data",
+	})
+}
+
+// ============================================================================
+// Handler Functions - Request-Level Caching
+// ============================================================================
+
+// requestCacheHandler demonstrates request-specific caching
+func requestCacheHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	// Get request-specific cache (isolated per request)
+	requestID := ctx.Request().ID
+	requestCache := cache.GetRequestCache(requestID)
+
+	// Store data in request cache
+	requestCache.Set("computed_value", "expensive_calculation_result")
+	requestCache.Set("user_data", map[string]interface{}{
+		"id":   123,
+		"name": "Request User",
+	})
+
+	// Retrieve data from request cache
+	computedValue := requestCache.Get("computed_value")
+	userData := requestCache.Get("user_data")
+
+	// Get cache statistics
+	cacheSize := requestCache.Size()
+	cacheKeys := requestCache.Keys()
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message":        "Request-level cache demonstrated",
+		"request_id":     requestID,
+		"computed_value": computedValue,
+		"user_data":      userData,
+		"cache_size":     cacheSize,
+		"cache_keys":     cacheKeys,
+		"note":           "Request cache is automatically cleared after the request completes",
+	})
+}
+
+// ============================================================================
+// Handler Functions - Cache Statistics
+// ============================================================================
+
+// cacheStatsHandler demonstrates cache statistics and monitoring
+func cacheStatsHandler(ctx pkg.Context) error {
+	cache := ctx.Cache()
+
+	// Set some test data
+	cache.Set("stat:test1", "value1", 1*time.Minute)
+	cache.Set("stat:test2", "value2", 2*time.Minute)
+	cache.Set("stat:test3", "value3", 3*time.Minute)
+
+	// Check existence
+	exists1 := cache.Exists("stat:test1")
+	exists2 := cache.Exists("stat:test2")
+	exists3 := cache.Exists("stat:test3")
+
+	// Get TTLs
+	ttl1, _ := cache.TTL("stat:test1")
+	ttl2, _ := cache.TTL("stat:test2")
+	ttl3, _ := cache.TTL("stat:test3")
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Cache statistics",
+		"entries": []map[string]interface{}{
+			{
+				"key":    "stat:test1",
+				"exists": exists1,
+				"ttl":    ttl1.String(),
+			},
+			{
+				"key":    "stat:test2",
+				"exists": exists2,
+				"ttl":    ttl2.String(),
+			},
+			{
+				"key":    "stat:test3",
+				"exists": exists3,
+				"ttl":    ttl3.String(),
+			},
+		},
+		"note": "These are sample cache entries for demonstration",
+	})
 }

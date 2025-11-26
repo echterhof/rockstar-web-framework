@@ -86,9 +86,9 @@ func newMockGRPCDB() *mockGRPCDB {
 func (m *mockGRPCDB) CheckRateLimit(key string, limit int, window time.Duration) (bool, error) {
 	count, exists := m.rateLimits[key]
 	if !exists {
-		return true, nil
+		return false, nil // Not exceeded
 	}
-	return count < limit, nil
+	return count >= limit, nil // True if exceeded
 }
 func (m *mockGRPCDB) IncrementRateLimit(key string, window time.Duration) error {
 	m.rateLimits[key]++
@@ -98,6 +98,7 @@ func (m *mockGRPCDB) Connect(config DatabaseConfig) error                       
 func (m *mockGRPCDB) Close() error                                                { return nil }
 func (m *mockGRPCDB) Ping() error                                                 { return nil }
 func (m *mockGRPCDB) Stats() DatabaseStats                                        { return DatabaseStats{} }
+func (m *mockGRPCDB) IsConnected() bool                                           { return true }
 func (m *mockGRPCDB) Query(query string, args ...interface{}) (*sql.Rows, error)  { return nil, nil }
 func (m *mockGRPCDB) QueryRow(query string, args ...interface{}) *sql.Row         { return nil }
 func (m *mockGRPCDB) Exec(query string, args ...interface{}) (sql.Result, error)  { return nil, nil }

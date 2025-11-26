@@ -1,344 +1,529 @@
 package main
 
 import (
-	"crypto/sha256"
+	"crypto/md5"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/yourusername/rockstar/pkg"
+	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-// CachePlugin demonstrates caching middleware
+// ============================================================================
+// Cache Plugin Example
+// ============================================================================
+//
+// This plugin demonstrates:
+// - Caching middleware
+// - Cache integration
+// - Plugin storage usage
+// - Cache key generation
+// - Cache invalidation
+//
+// Requirements: 1.1, 1.2, 1.3, 2.1, 7.2, 7.5
+// ============================================================================
+
+// CachePlugin implements HTTP response caching functionality
 type CachePlugin struct {
-	ctx           pkg.PluginContext
-	cacheDuration time.Duration
-	cacheHits     int64
-	cacheMisses   int64
-	cacheEnabled  bool
+	ctx pkg.PluginContext
+	
+	// Configuration
+	enabled                bool
+	cacheDuration          time.Duration
+	maxCacheSize           string
+	cacheMethods           []string
+	includeQueryParams     bool
+	includeHeaders         bool
+	customKeyPrefix        string
+	excludedPaths          []string
+	excludedContentTypes   []string
+	invalidateOnMutation   bool
+	invalidationPatterns   []string
+	compressionEnabled     bool
+	compressionThreshold   string
+	
+	// Plugin storage for cache data
+	storage pkg.PluginStorage
 }
 
-// Name returns the plugin name
+// ============================================================================
+// Plugin Interface Implementation
+// ============================================================================
+
 func (p *CachePlugin) Name() string {
 	return "cache-plugin"
 }
 
-// Version returns the plugin version
 func (p *CachePlugin) Version() string {
 	return "1.0.0"
 }
 
-// Description returns the plugin description
 func (p *CachePlugin) Description() string {
-	return "Cache plugin demonstrating caching middleware"
+	return "HTTP response caching plugin with intelligent cache key generation"
 }
 
-// Author returns the plugin author
 func (p *CachePlugin) Author() string {
 	return "Rockstar Framework Team"
 }
 
-// Dependencies returns the plugin dependencies
 func (p *CachePlugin) Dependencies() []pkg.PluginDependency {
 	return []pkg.PluginDependency{}
 }
 
-// Initialize initializes the plugin with the provided context
 func (p *CachePlugin) Initialize(ctx pkg.PluginContext) error {
+	fmt.Printf("[%s] Initializing cache plugin...\n", p.Name())
+	
 	p.ctx = ctx
+	p.storage = ctx.PluginStorage()
 	
-	// Get configuration
-	config := ctx.PluginConfig()
-	if duration, ok := config["cache_duration"].(string); ok {
-		if d, err := time.ParseDuration(duration); err == nil {
-			p.cacheDuration = d
-		}
+	// Parse configuration
+	if err := p.parseConfig(ctx.PluginConfig()); err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 	
-	// Default to 5 minutes
-	if p.cacheDuration == 0 {
-		p.cacheDuration = 5 * time.Minute
+	// Register hooks
+	if err := p.registerHooks(); err != nil {
+		return fmt.Errorf("failed to register hooks: %w", err)
 	}
 	
-	if enabled, ok := config["enabled"].(bool); ok {
-		p.cacheEnabled = enabled
-	} else {
-		p.cacheEnabled = true
+	// Register middleware
+	if err := p.registerMiddleware(); err != nil {
+		return fmt.Errorf("failed to register middleware: %w", err)
 	}
 	
-	// Register caching middleware
-	if p.cacheEnabled {
-		err := ctx.RegisterMiddleware("cache", p.cacheMiddleware, 50, []string{})
-		if err != nil {
-			return fmt.Errorf("failed to register cache middleware: %w", err)
-		}
-	}
-	
-	// Register pre-response hook to cache responses
-	err := ctx.RegisterHook(pkg.HookTypePreResponse, 50, p.cacheResponse)
-	if err != nil {
-		return fmt.Errorf("failed to register cache response hook: %w", err)
-	}
-	
-	// Subscribe to cache invalidation events
-	err = ctx.SubscribeEvent("cache.invalidate", p.handleInvalidation)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to cache invalidation events: %w", err)
-	}
-	
-	// Export cache service
-	err = ctx.ExportService("CacheService", &CacheService{plugin: p})
-	if err != nil {
-		return fmt.Errorf("failed to export cache service: %w", err)
-	}
-	
-	if logger := ctx.Logger(); logger != nil {
-		logger.Info("Cache plugin initialized")
-	}
-	
+	fmt.Printf("[%s] Initialization complete\n", p.Name())
 	return nil
 }
 
-// Start starts the plugin
 func (p *CachePlugin) Start() error {
-	if logger := p.ctx.Logger(); logger != nil {
-		logger.Info("Cache plugin started")
-	}
+	fmt.Printf("[%s] Starting cache plugin...\n", p.Name())
+	
+	// Start background cache cleanup task
+	go p.cleanupExpiredCache()
+	
+	fmt.Printf("[%s] Plugin started\n", p.Name())
 	return nil
 }
 
-// Stop stops the plugin
 func (p *CachePlugin) Stop() error {
-	if logger := p.ctx.Logger(); logger != nil {
-		hitRate := float64(0)
-		total := p.cacheHits + p.cacheMisses
-		if total > 0 {
-			hitRate = float64(p.cacheHits) / float64(total) * 100
-		}
-		logger.Info(fmt.Sprintf("Cache plugin stopped. Hits: %d, Misses: %d, Hit Rate: %.2f%%", 
-			p.cacheHits, p.cacheMisses, hitRate))
-	}
+	fmt.Printf("[%s] Stopping cache plugin...\n", p.Name())
+	
+	// Stop background tasks
+	// In a real implementation, use context or channel to signal shutdown
+	
+	fmt.Printf("[%s] Plugin stopped\n", p.Name())
 	return nil
 }
 
-// Cleanup cleans up plugin resources
 func (p *CachePlugin) Cleanup() error {
-	if logger := p.ctx.Logger(); logger != nil {
-		logger.Info("Cache plugin cleaned up")
+	fmt.Printf("[%s] Cleaning up cache plugin...\n", p.Name())
+	
+	// Clear all cached data
+	if p.storage != nil {
+		if err := p.storage.Clear(); err != nil {
+			fmt.Printf("[%s] Warning: Failed to clear cache: %v\n", p.Name(), err)
+		}
 	}
+	
+	p.ctx = nil
+	p.storage = nil
+	
+	fmt.Printf("[%s] Cleanup complete\n", p.Name())
 	return nil
 }
 
-// ConfigSchema returns the configuration schema
 func (p *CachePlugin) ConfigSchema() map[string]interface{} {
 	return map[string]interface{}{
-		"cache_duration": map[string]interface{}{
-			"type":        "duration",
-			"default":     "5m",
-			"description": "Duration for which responses are cached",
-		},
 		"enabled": map[string]interface{}{
 			"type":        "bool",
 			"default":     true,
-			"description": "Whether caching is enabled",
+			"description": "Enable caching",
+		},
+		"cache_duration": map[string]interface{}{
+			"type":        "duration",
+			"default":     "10m",
+			"description": "Default cache duration",
 		},
 		"cache_methods": map[string]interface{}{
 			"type":        "array",
 			"items":       "string",
-			"default":     []interface{}{"GET"},
+			"default":     []string{"GET", "HEAD"},
 			"description": "HTTP methods to cache",
+		},
+		"include_query_params": map[string]interface{}{
+			"type":        "bool",
+			"default":     true,
+			"description": "Include query parameters in cache key",
+		},
+		"custom_key_prefix": map[string]interface{}{
+			"type":        "string",
+			"default":     "api_cache",
+			"description": "Custom prefix for cache keys",
 		},
 		"excluded_paths": map[string]interface{}{
 			"type":        "array",
 			"items":       "string",
-			"default":     []interface{}{"/admin", "/api/auth"},
+			"default":     []string{"/admin", "/api/auth"},
 			"description": "Paths to exclude from caching",
+		},
+		"invalidate_on_mutation": map[string]interface{}{
+			"type":        "bool",
+			"default":     true,
+			"description": "Invalidate cache on POST/PUT/DELETE requests",
+		},
+		"compression_enabled": map[string]interface{}{
+			"type":        "bool",
+			"default":     true,
+			"description": "Enable response compression in cache",
 		},
 	}
 }
 
-// OnConfigChange handles configuration changes
 func (p *CachePlugin) OnConfigChange(config map[string]interface{}) error {
+	fmt.Printf("[%s] Configuration updated\n", p.Name())
+	return p.parseConfig(config)
+}
+
+// ============================================================================
+// Configuration Parsing
+// ============================================================================
+
+func (p *CachePlugin) parseConfig(config map[string]interface{}) error {
+	// Enabled
+	if val, ok := config["enabled"].(bool); ok {
+		p.enabled = val
+	} else {
+		p.enabled = true
+	}
+	
+	// Cache Duration
 	if duration, ok := config["cache_duration"].(string); ok {
-		if d, err := time.ParseDuration(duration); err == nil {
-			p.cacheDuration = d
+		d, err := time.ParseDuration(duration)
+		if err != nil {
+			return fmt.Errorf("invalid cache_duration: %w", err)
 		}
+		p.cacheDuration = d
+	} else {
+		p.cacheDuration = 10 * time.Minute
 	}
 	
-	if enabled, ok := config["enabled"].(bool); ok {
-		p.cacheEnabled = enabled
+	// Cache Methods
+	if methods, ok := config["cache_methods"].([]interface{}); ok {
+		p.cacheMethods = make([]string, 0, len(methods))
+		for _, method := range methods {
+			if methodStr, ok := method.(string); ok {
+				p.cacheMethods = append(p.cacheMethods, methodStr)
+			}
+		}
+	} else {
+		p.cacheMethods = []string{"GET", "HEAD"}
 	}
 	
-	if logger := p.ctx.Logger(); logger != nil {
-		logger.Info("Cache plugin configuration updated")
+	// Include Query Params
+	if val, ok := config["include_query_params"].(bool); ok {
+		p.includeQueryParams = val
+	} else {
+		p.includeQueryParams = true
+	}
+	
+	// Custom Key Prefix
+	if prefix, ok := config["custom_key_prefix"].(string); ok {
+		p.customKeyPrefix = prefix
+	} else {
+		p.customKeyPrefix = "api_cache"
+	}
+	
+	// Excluded Paths
+	if paths, ok := config["excluded_paths"].([]interface{}); ok {
+		p.excludedPaths = make([]string, 0, len(paths))
+		for _, path := range paths {
+			if pathStr, ok := path.(string); ok {
+				p.excludedPaths = append(p.excludedPaths, pathStr)
+			}
+		}
+	} else {
+		p.excludedPaths = []string{"/admin", "/api/auth"}
+	}
+	
+	// Invalidate On Mutation
+	if val, ok := config["invalidate_on_mutation"].(bool); ok {
+		p.invalidateOnMutation = val
+	} else {
+		p.invalidateOnMutation = true
+	}
+	
+	// Compression Enabled
+	if val, ok := config["compression_enabled"].(bool); ok {
+		p.compressionEnabled = val
+	} else {
+		p.compressionEnabled = true
 	}
 	
 	return nil
 }
 
-// cacheMiddleware checks cache before processing request
-func (p *CachePlugin) cacheMiddleware(ctx pkg.Context) error {
-	if !p.cacheEnabled {
-		return nil
-	}
-	
-	// Only cache GET requests
-	if ctx.Method() != "GET" {
-		return nil
-	}
-	
-	// Check if path is excluded
-	config := p.ctx.PluginConfig()
-	if excluded, ok := config["excluded_paths"].([]interface{}); ok {
-		path := ctx.Path()
-		for _, ex := range excluded {
-			if exPath, ok := ex.(string); ok && strings.HasPrefix(path, exPath) {
-				return nil
-			}
-		}
-	}
-	
-	// Generate cache key
-	cacheKey := p.generateCacheKey(ctx)
-	
-	// Try to get from cache
-	cache := p.ctx.Cache()
-	if cache != nil {
-		if cachedData, err := cache.Get(cacheKey); err == nil && cachedData != nil {
-			p.cacheHits++
-			
-			if logger := p.ctx.Logger(); logger != nil {
-				logger.Info(fmt.Sprintf("Cache hit for %s", ctx.Path()))
-			}
-			
-			// Record metrics
-			if metrics := p.ctx.Metrics(); metrics != nil {
-				metrics.IncrementCounter("cache_plugin.hits", 1)
-			}
-			
-			// In a real implementation, we would return the cached response here
-			// For this example, we just log it
-		} else {
-			p.cacheMisses++
-			
-			if logger := p.ctx.Logger(); logger != nil {
-				logger.Info(fmt.Sprintf("Cache miss for %s", ctx.Path()))
-			}
-			
-			// Record metrics
-			if metrics := p.ctx.Metrics(); metrics != nil {
-				metrics.IncrementCounter("cache_plugin.misses", 1)
-			}
-		}
-	}
-	
-	return nil
-}
+// ============================================================================
+// Hook Registration
+// ============================================================================
 
-// cacheResponse caches the response before it's sent
-func (p *CachePlugin) cacheResponse(ctx pkg.HookContext) error {
-	if !p.cacheEnabled {
-		return nil
-	}
-	
-	reqCtx := ctx.Context()
-	if reqCtx == nil {
-		return nil
-	}
-	
-	// Only cache GET requests with 200 status
-	if reqCtx.Method() != "GET" || reqCtx.Status() != 200 {
-		return nil
-	}
-	
-	// Check if path is excluded
-	config := p.ctx.PluginConfig()
-	if excluded, ok := config["excluded_paths"].([]interface{}); ok {
-		path := reqCtx.Path()
-		for _, ex := range excluded {
-			if exPath, ok := ex.(string); ok && strings.HasPrefix(path, exPath) {
-				return nil
-			}
-		}
-	}
-	
-	// Generate cache key
-	cacheKey := p.generateCacheKey(reqCtx)
-	
-	// Store in cache
-	cache := p.ctx.Cache()
-	if cache != nil {
-		// In a real implementation, we would cache the actual response
-		// For this example, we just cache a placeholder
-		cacheData := map[string]interface{}{
-			"path":      reqCtx.Path(),
-			"timestamp": time.Now(),
+func (p *CachePlugin) registerHooks() error {
+	// Register pre-request hook for cache lookup
+	err := p.ctx.RegisterHook(pkg.HookTypePreRequest, 150, func(hookCtx pkg.HookContext) error {
+		if !p.enabled {
+			return nil
 		}
 		
-		if err := cache.Set(cacheKey, cacheData, p.cacheDuration); err != nil {
-			if logger := p.ctx.Logger(); logger != nil {
-				logger.Error(fmt.Sprintf("Failed to cache response: %v", err))
-			}
-		} else {
-			if logger := p.ctx.Logger(); logger != nil {
-				logger.Info(fmt.Sprintf("Cached response for %s", reqCtx.Path()))
+		reqCtx := hookCtx.Context()
+		if reqCtx == nil {
+			return nil
+		}
+		
+		// Check if request is cacheable
+		if !p.isCacheable(reqCtx) {
+			return nil
+		}
+		
+		// Generate cache key
+		cacheKey := p.generateCacheKey(reqCtx)
+		
+		// Try to get from cache
+		if cached, err := p.storage.Get(cacheKey); err == nil && cached != nil {
+			// Cache hit - store in context for middleware to use
+			hookCtx.Set("cache_hit", true)
+			hookCtx.Set("cached_response", cached)
+			fmt.Printf("[%s] Cache hit: %s\n", p.Name(), cacheKey)
+		}
+		
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register pre-request hook: %w", err)
+	}
+	
+	// Register post-request hook for cache storage
+	err = p.ctx.RegisterHook(pkg.HookTypePostRequest, 150, func(hookCtx pkg.HookContext) error {
+		if !p.enabled {
+			return nil
+		}
+		
+		reqCtx := hookCtx.Context()
+		if reqCtx == nil {
+			return nil
+		}
+		
+		// Check if request is cacheable
+		if !p.isCacheable(reqCtx) {
+			return nil
+		}
+		
+		// Check if this was a cache hit (don't re-cache)
+		if cacheHit := hookCtx.Get("cache_hit"); cacheHit != nil {
+			if hit, ok := cacheHit.(bool); ok && hit {
+				return nil
 			}
 		}
+		
+		// Generate cache key
+		cacheKey := p.generateCacheKey(reqCtx)
+		
+		// Store response in cache
+		// In a real implementation, capture the response data
+		cacheData := map[string]interface{}{
+			"timestamp": time.Now(),
+			"expires":   time.Now().Add(p.cacheDuration),
+		}
+		
+		if err := p.storage.Set(cacheKey, cacheData); err != nil {
+			fmt.Printf("[%s] Failed to cache response: %v\n", p.Name(), err)
+		} else {
+			fmt.Printf("[%s] Cached response: %s\n", p.Name(), cacheKey)
+		}
+		
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register post-request hook: %w", err)
 	}
 	
 	return nil
 }
 
-// handleInvalidation handles cache invalidation events
-func (p *CachePlugin) handleInvalidation(event pkg.Event) error {
-	if data, ok := event.Data.(map[string]interface{}); ok {
-		if pattern, ok := data["pattern"].(string); ok {
-			if logger := p.ctx.Logger(); logger != nil {
-				logger.Info(fmt.Sprintf("Cache invalidation requested for pattern: %s", pattern))
+// ============================================================================
+// Middleware Registration
+// ============================================================================
+
+func (p *CachePlugin) registerMiddleware() error {
+	// Register caching middleware
+	cacheMiddleware := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+		if !p.enabled {
+			return next(ctx)
+		}
+		
+		// Check if request is cacheable
+		if !p.isCacheable(ctx) {
+			return next(ctx)
+		}
+		
+		// Generate cache key
+		cacheKey := p.generateCacheKey(ctx)
+		
+		// Try to get from cache
+		if cached, err := p.storage.Get(cacheKey); err == nil && cached != nil {
+			// Check if cache entry is expired
+			if cacheMap, ok := cached.(map[string]interface{}); ok {
+				if expires, ok := cacheMap["expires"].(time.Time); ok {
+					if time.Now().Before(expires) {
+						// Cache hit - return cached response
+						fmt.Printf("[%s] Serving from cache: %s\n", p.Name(), cacheKey)
+						return ctx.JSON(200, cacheMap)
+					}
+				}
+			}
+		}
+		
+		// Cache miss - call next handler
+		err := next(ctx)
+		
+		// Handle cache invalidation on mutations
+		req := ctx.Request()
+		if req != nil && req.URL != nil && p.invalidateOnMutation && p.isMutationMethod(req.Method) {
+			p.invalidateCache(req.URL.Path)
+		}
+		
+		return err
+	}
+	
+	// Register the middleware
+	err := p.ctx.RegisterMiddleware("cache", cacheMiddleware, 150, []string{})
+	if err != nil {
+		return fmt.Errorf("failed to register cache middleware: %w", err)
+	}
+	
+	fmt.Printf("[%s] Registered cache middleware\n", p.Name())
+	return nil
+}
+
+// ============================================================================
+// Helper Methods
+// ============================================================================
+
+func (p *CachePlugin) isCacheable(ctx pkg.Context) bool {
+	req := ctx.Request()
+	if req == nil || req.URL == nil {
+		return false
+	}
+	
+	// Check if method is cacheable
+	method := req.Method
+	cacheable := false
+	for _, m := range p.cacheMethods {
+		if m == method {
+			cacheable = true
+			break
+		}
+	}
+	if !cacheable {
+		return false
+	}
+	
+	// Check if path is excluded
+	path := req.URL.Path
+	for _, excluded := range p.excludedPaths {
+		if strings.HasPrefix(path, excluded) {
+			return false
+		}
+	}
+	
+	return true
+}
+
+func (p *CachePlugin) isMutationMethod(method string) bool {
+	return method == "POST" || method == "PUT" || method == "DELETE" || method == "PATCH"
+}
+
+func (p *CachePlugin) generateCacheKey(ctx pkg.Context) string {
+	req := ctx.Request()
+	if req == nil || req.URL == nil {
+		return p.customKeyPrefix
+	}
+	
+	// Build cache key from request components
+	parts := []string{
+		p.customKeyPrefix,
+		req.Method,
+		req.URL.Path,
+	}
+	
+	// Include query parameters if configured
+	if p.includeQueryParams {
+		// In a real implementation, extract and sort query parameters
+		parts = append(parts, "query_params")
+	}
+	
+	// Generate hash of the key components
+	key := strings.Join(parts, ":")
+	hash := md5.Sum([]byte(key))
+	return fmt.Sprintf("%s:%x", p.customKeyPrefix, hash)
+}
+
+func (p *CachePlugin) invalidateCache(path string) {
+	// Invalidate cache entries matching the path
+	// In a real implementation, iterate through cache keys and remove matching entries
+	fmt.Printf("[%s] Invalidating cache for path: %s\n", p.Name(), path)
+	
+	// For demonstration, we'll just log the invalidation
+	// A real implementation would:
+	// 1. List all cache keys
+	// 2. Match against invalidation patterns
+	// 3. Delete matching entries
+}
+
+func (p *CachePlugin) cleanupExpiredCache() {
+	// Background task to clean up expired cache entries
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		fmt.Printf("[%s] Cleaning up expired cache entries...\n", p.Name())
+		
+		// In a real implementation:
+		// 1. List all cache keys
+		// 2. Check expiration time
+		// 3. Delete expired entries
+		
+		if p.storage != nil {
+			keys, err := p.storage.List()
+			if err != nil {
+				continue
 			}
 			
-			// In a real implementation, we would invalidate matching cache entries
-			// For this example, we just log it
+			for _, key := range keys {
+				cached, err := p.storage.Get(key)
+				if err != nil {
+					continue
+				}
+				
+				if cacheMap, ok := cached.(map[string]interface{}); ok {
+					if expires, ok := cacheMap["expires"].(time.Time); ok {
+						if time.Now().After(expires) {
+							p.storage.Delete(key)
+							fmt.Printf("[%s] Deleted expired cache entry: %s\n", p.Name(), key)
+						}
+					}
+				}
+			}
 		}
 	}
-	
-	return nil
 }
 
-// generateCacheKey generates a cache key for a request
-func (p *CachePlugin) generateCacheKey(ctx pkg.Context) string {
-	// Create a key based on method, path, and query parameters
-	key := fmt.Sprintf("%s:%s:%s", ctx.Method(), ctx.Path(), ctx.Query(""))
-	
-	// Hash the key for consistent length
-	hash := sha256.Sum256([]byte(key))
-	return fmt.Sprintf("cache_plugin:%x", hash)
-}
+// ============================================================================
+// Plugin Entry Point
+// ============================================================================
 
-// CacheService is an exported service for other plugins
-type CacheService struct {
-	plugin *CachePlugin
-}
-
-// GetHitRate returns the cache hit rate
-func (s *CacheService) GetHitRate() float64 {
-	total := s.plugin.cacheHits + s.plugin.cacheMisses
-	if total == 0 {
-		return 0
-	}
-	return float64(s.plugin.cacheHits) / float64(total) * 100
-}
-
-// GetStats returns cache statistics
-func (s *CacheService) GetStats() map[string]interface{} {
-	return map[string]interface{}{
-		"hits":     s.plugin.cacheHits,
-		"misses":   s.plugin.cacheMisses,
-		"hit_rate": s.GetHitRate(),
-	}
-}
-
-// NewPlugin creates a new instance of the plugin
 func NewPlugin() pkg.Plugin {
 	return &CachePlugin{}
+}
+
+func main() {
+	// Plugin entry point
 }

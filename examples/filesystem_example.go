@@ -3,233 +3,522 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-	fmt.Println("=== Rockstar Web Framework - Virtual File System Example ===\n")
+	// ============================================================================
+	// Configuration Setup
+	// ============================================================================
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
+		},
+	}
 
-	// Example 1: Basic Memory File System
-	fmt.Println("1. Basic Memory File System")
-	memoryFSExample()
-
-	// Example 2: OS File System
-	fmt.Println("\n2. OS File System")
-	osFSExample()
-
-	// Example 3: Per-Host Virtual Filesystems
-	fmt.Println("\n3. Per-Host Virtual Filesystems")
-	perHostFSExample()
-
-	// Example 4: Static File Serving with Router
-	fmt.Println("\n4. Static File Serving with Router")
-	staticFileServingExample()
-
-	// Example 5: File Manager Operations
-	fmt.Println("\n5. File Manager Operations")
-	fileManagerExample()
-}
-
-// Example 1: Basic Memory File System
-func memoryFSExample() {
-	// Create a memory filesystem
-	fs := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-
-	// Add files
-	fs.AddFile("/index.html", []byte("<html><body>Welcome!</body></html>"))
-	fs.AddFile("/style.css", []byte("body { color: blue; }"))
-	fs.AddFile("/js/app.js", []byte("console.log('Hello');"))
-
-	// Add directory
-	fs.AddDir("/images")
-
-	// Check if files exist
-	fmt.Printf("  /index.html exists: %v\n", fs.Exists("/index.html"))
-	fmt.Printf("  /style.css exists: %v\n", fs.Exists("/style.css"))
-	fmt.Printf("  /nonexistent.txt exists: %v\n", fs.Exists("/nonexistent.txt"))
-
-	// Open and read a file
-	file, err := fs.Open("/index.html")
+	// ============================================================================
+	// Framework Initialization
+	// ============================================================================
+	app, err := pkg.New(config)
 	if err != nil {
-		log.Printf("  Error opening file: %v\n", err)
-		return
-	}
-	defer file.Close()
-
-	stat, _ := file.Stat()
-	fmt.Printf("  File size: %d bytes\n", stat.Size())
-}
-
-// Example 2: OS File System
-func osFSExample() {
-	// Create an OS filesystem rooted at current directory
-	fs := pkg.NewOSFileSystem(".")
-
-	// Check if files exist
-	fmt.Printf("  go.mod exists: %v\n", fs.Exists("go.mod"))
-	fmt.Printf("  README.md exists: %v\n", fs.Exists("README.md"))
-
-	// Try to open go.mod
-	file, err := fs.Open("go.mod")
-	if err != nil {
-		fmt.Printf("  Could not open go.mod: %v\n", err)
-	} else {
-		defer file.Close()
-		stat, _ := file.Stat()
-		fmt.Printf("  go.mod size: %d bytes\n", stat.Size())
+		log.Fatalf("Failed to create framework: %v", err)
 	}
 
-	// Security: Try directory traversal (should fail)
-	_, err = fs.Open("../../../etc/passwd")
-	if err == pkg.ErrInvalidPath {
-		fmt.Println("  ✓ Directory traversal prevented")
-	}
-}
+	// Initialize file manager with memory filesystem for demonstration
+	memFS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
+	fileManager := pkg.NewFileManager(memFS)
 
-// Example 3: Per-Host Virtual Filesystems
-func perHostFSExample() {
-	// Create a host filesystem manager
-	manager := pkg.NewHostFileSystemManager()
+	// Add some sample files to the virtual filesystem
+	memFS.AddFile("/readme.txt", []byte("Welcome to the Rockstar Web Framework!"))
+	memFS.AddFile("/data/users.json", []byte(`{"users": [{"id": 1, "name": "John"}]}`))
+	memFS.AddDir("/uploads")
 
-	// Create filesystems for different hosts
-	host1FS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	host1FS.AddFile("/index.html", []byte("<html>Welcome to Host 1</html>"))
-	host1FS.AddFile("/about.html", []byte("<html>About Host 1</html>"))
+	// ============================================================================
+	// Route Registration
+	// ============================================================================
+	router := app.Router()
 
-	host2FS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	host2FS.AddFile("/index.html", []byte("<html>Welcome to Host 2</html>"))
-	host2FS.AddFile("/contact.html", []byte("<html>Contact Host 2</html>"))
+	// File upload handling
+	router.POST("/api/files/upload", uploadFileHandler(fileManager))
+	router.POST("/api/files/upload-multiple", uploadMultipleFilesHandler(fileManager))
 
-	// Register hosts
-	manager.RegisterHost("host1.example.com", host1FS)
-	manager.RegisterHost("host2.example.com", host2FS)
+	// File download serving
+	router.GET("/api/files/download/:filename", downloadFileHandler(fileManager))
+	router.GET("/api/files/read/:filename", readFileHandler(fileManager))
 
-	// Access files from different hosts
-	if fs, exists := manager.GetFileSystem("host1.example.com"); exists {
-		fmt.Printf("  host1.example.com has /index.html: %v\n", fs.Exists("/index.html"))
-		fmt.Printf("  host1.example.com has /about.html: %v\n", fs.Exists("/about.html"))
-		fmt.Printf("  host1.example.com has /contact.html: %v\n", fs.Exists("/contact.html"))
-	}
+	// Virtual filesystem operations
+	router.GET("/api/files/list", listFilesHandler(fileManager))
+	router.GET("/api/files/exists/:filename", fileExistsHandler(fileManager))
+	router.GET("/api/files/info/:filename", fileInfoHandler(fileManager))
+	router.DELETE("/api/files/delete/:filename", deleteFileHandler(fileManager))
 
-	if fs, exists := manager.GetFileSystem("host2.example.com"); exists {
-		fmt.Printf("  host2.example.com has /index.html: %v\n", fs.Exists("/index.html"))
-		fmt.Printf("  host2.example.com has /about.html: %v\n", fs.Exists("/about.html"))
-		fmt.Printf("  host2.example.com has /contact.html: %v\n", fs.Exists("/contact.html"))
-	}
+	// Directory operations
+	router.POST("/api/files/mkdir", createDirectoryHandler(fileManager))
+	router.GET("/api/files/listdir/:dirname", listDirectoryHandler(fileManager))
 
-	// Unregister a host
-	manager.UnregisterHost("host1.example.com")
-	_, exists := manager.GetFileSystem("host1.example.com")
-	fmt.Printf("  host1.example.com exists after unregister: %v\n", exists)
-}
+	// File validation and security
+	router.POST("/api/files/upload-validated", uploadValidatedFileHandler(fileManager))
 
-// Example 4: Static File Serving with Router
-func staticFileServingExample() {
-	// Create a router
-	router := pkg.NewRouter()
+	// ============================================================================
+	// Server Startup
+	// ============================================================================
+	fmt.Println("🎸 Rockstar Web Framework - Filesystem Example")
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+	fmt.Println("Server listening on: http://localhost:8080")
+	fmt.Println()
+	fmt.Println("Try these commands:")
+	fmt.Println("  # File upload handling")
+	fmt.Println("  curl -X POST -F \"file=@yourfile.txt\" http://localhost:8080/api/files/upload")
+	fmt.Println("  curl -X POST -F \"file1=@file1.txt\" -F \"file2=@file2.txt\" http://localhost:8080/api/files/upload-multiple")
+	fmt.Println()
+	fmt.Println("  # File download serving")
+	fmt.Println("  curl http://localhost:8080/api/files/download/readme.txt")
+	fmt.Println("  curl http://localhost:8080/api/files/read/readme.txt")
+	fmt.Println()
+	fmt.Println("  # Virtual filesystem operations")
+	fmt.Println("  curl http://localhost:8080/api/files/list")
+	fmt.Println("  curl http://localhost:8080/api/files/exists/readme.txt")
+	fmt.Println("  curl http://localhost:8080/api/files/info/readme.txt")
+	fmt.Println("  curl -X DELETE http://localhost:8080/api/files/delete/readme.txt")
+	fmt.Println()
+	fmt.Println("  # Directory operations")
+	fmt.Println("  curl -X POST -d 'dirname=newdir' http://localhost:8080/api/files/mkdir")
+	fmt.Println("  curl http://localhost:8080/api/files/listdir/data")
+	fmt.Println()
+	fmt.Println("  # File validation")
+	fmt.Println("  curl -X POST -F \"file=@yourfile.txt\" http://localhost:8080/api/files/upload-validated")
+	fmt.Println()
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
 
-	// Create filesystems for different purposes
-	publicFS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	publicFS.AddFile("/index.html", []byte("<html>Public Index</html>"))
-	publicFS.AddFile("/style.css", []byte("body { margin: 0; }"))
-
-	assetsFS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	assetsFS.AddFile("/logo.png", []byte("PNG data..."))
-	assetsFS.AddFile("/icon.svg", []byte("<svg>...</svg>"))
-
-	// Register static routes
-	router.Static("/public", publicFS)
-	router.Static("/assets", assetsFS)
-
-	// Test route matching
-	route, params, found := router.Match("GET", "/public/index.html", "")
-	if found {
-		fmt.Printf("  ✓ Matched route: %s (static: %v)\n", route.Path, route.IsStatic)
-		fmt.Printf("    Filepath parameter: %s\n", params["filepath"])
-	}
-
-	route, params, found = router.Match("GET", "/assets/logo.png", "")
-	if found {
-		fmt.Printf("  ✓ Matched route: %s (static: %v)\n", route.Path, route.IsStatic)
-		fmt.Printf("    Filepath parameter: %s\n", params["filepath"])
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
 	}
 }
 
-// Example 5: File Manager Operations
-func fileManagerExample() {
-	// Create a file manager with memory filesystem
-	vfs := pkg.NewMemoryFileSystem()
-	fm := pkg.NewFileManager(vfs)
+// ============================================================================
+// Handler Functions - File Upload Handling
+// ============================================================================
 
-	// Write files
-	fmt.Println("  Writing files...")
-	fm.Write("/config.json", []byte(`{"port": 8080, "host": "localhost"}`))
-	fm.Write("/data.txt", []byte("Some important data"))
+// uploadFileHandler demonstrates handling file uploads
+func uploadFileHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		// Get uploaded file
+		file, err := ctx.FormFile("file")
+		if err != nil {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":   "No file uploaded",
+				"message": "Please provide a file with the 'file' field",
+			})
+		}
 
-	// Create directory
-	fm.CreateDir("/uploads")
+		// Save file to virtual filesystem
+		uploadPath := "/uploads/" + file.Filename
+		err = fm.Write(uploadPath, file.Content)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": "Failed to save file",
+			})
+		}
 
-	// Check existence
-	fmt.Printf("  /config.json exists: %v\n", fm.Exists("/config.json"))
-	fmt.Printf("  /data.txt exists: %v\n", fm.Exists("/data.txt"))
-	fmt.Printf("  /uploads exists: %v\n", fm.Exists("/uploads"))
-
-	// Read file
-	data, err := fm.Read("/config.json")
-	if err != nil {
-		fmt.Printf("  Error reading file: %v\n", err)
-	} else {
-		fmt.Printf("  Config content: %s\n", string(data))
-	}
-
-	// Delete file
-	fmt.Println("  Deleting /data.txt...")
-	fm.Delete("/data.txt")
-	fmt.Printf("  /data.txt exists after delete: %v\n", fm.Exists("/data.txt"))
-}
-
-// Example handler using FileManager in context
-func exampleHandler(ctx pkg.Context) error {
-	fm := ctx.Files()
-
-	// Read a configuration file
-	config, err := fm.Read("/config.json")
-	if err != nil {
-		return ctx.JSON(500, map[string]string{
-			"error": "Failed to read config",
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "File uploaded successfully",
+			"filename": file.Filename,
+			"size":     file.Size,
+			"path":     uploadPath,
 		})
 	}
-
-	// Write a log file
-	logData := []byte(fmt.Sprintf("Request from %s",
-		ctx.Request().RemoteAddr))
-	fm.Write("/logs/access.log", logData)
-
-	return ctx.JSON(200, map[string]interface{}{
-		"config": string(config),
-		"status": "success",
-	})
 }
 
-// Example: Multi-tenant file serving
-func multiTenantExample() {
-	router := pkg.NewRouter()
+// uploadMultipleFilesHandler demonstrates handling multiple file uploads
+func uploadMultipleFilesHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		// In this example, we'll handle files named file1, file2, etc.
+		uploadedFiles := []map[string]interface{}{}
 
-	// Create tenant-specific filesystems
-	tenant1FS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	tenant1FS.AddFile("/index.html", []byte("<html>Tenant 1 Portal</html>"))
-	tenant1FS.AddFile("/logo.png", []byte("Tenant 1 logo data"))
+		// Try to get multiple files
+		for i := 1; i <= 10; i++ {
+			fieldName := fmt.Sprintf("file%d", i)
+			file, err := ctx.FormFile(fieldName)
+			if err != nil {
+				// No more files
+				break
+			}
 
-	tenant2FS := pkg.NewMemoryFileSystem().(*pkg.MemoryFileSystem)
-	tenant2FS.AddFile("/index.html", []byte("<html>Tenant 2 Portal</html>"))
-	tenant2FS.AddFile("/logo.png", []byte("Tenant 2 logo data"))
+			// Save file
+			uploadPath := "/uploads/" + file.Filename
+			err = fm.Write(uploadPath, file.Content)
+			if err != nil {
+				return ctx.JSON(500, map[string]interface{}{
+					"error": fmt.Sprintf("Failed to save file %s", file.Filename),
+				})
+			}
 
-	// Register per-host routes for tenants
-	router.Host("tenant1.example.com").Static("/", tenant1FS)
-	router.Host("tenant2.example.com").Static("/", tenant2FS)
+			uploadedFiles = append(uploadedFiles, map[string]interface{}{
+				"filename": file.Filename,
+				"size":     file.Size,
+				"path":     uploadPath,
+			})
+		}
 
-	// Each tenant gets their own isolated filesystem
-	// tenant1.example.com/index.html -> Tenant 1 content
-	// tenant2.example.com/index.html -> Tenant 2 content
+		if len(uploadedFiles) == 0 {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":   "No files uploaded",
+				"message": "Please provide files with fields named file1, file2, etc.",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Files uploaded successfully",
+			"count":   len(uploadedFiles),
+			"files":   uploadedFiles,
+		})
+	}
+}
+
+// ============================================================================
+// Handler Functions - File Download Serving
+// ============================================================================
+
+// downloadFileHandler demonstrates serving files for download
+func downloadFileHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		filename := ctx.Params()["filename"]
+		if filename == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Filename is required",
+			})
+		}
+
+		// Read file from virtual filesystem
+		filePath := "/" + filename
+		content, err := fm.Read(filePath)
+		if err != nil {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "File not found",
+				"message": fmt.Sprintf("File '%s' does not exist", filename),
+			})
+		}
+
+		// Set headers for file download
+		ctx.SetHeader("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+		ctx.SetHeader("Content-Type", "application/octet-stream")
+
+		// Write the file content as response
+		resp := ctx.Response()
+		resp.WriteHeader(200)
+		resp.Write(content)
+		return nil
+	}
+}
+
+// readFileHandler demonstrates reading and displaying file content
+func readFileHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		filename := ctx.Params()["filename"]
+		if filename == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Filename is required",
+			})
+		}
+
+		// Read file from virtual filesystem
+		filePath := "/" + filename
+		content, err := fm.Read(filePath)
+		if err != nil {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "File not found",
+				"message": fmt.Sprintf("File '%s' does not exist", filename),
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "File read successfully",
+			"filename": filename,
+			"size":     len(content),
+			"content":  string(content),
+		})
+	}
+}
+
+// ============================================================================
+// Handler Functions - Virtual Filesystem Operations
+// ============================================================================
+
+// listFilesHandler demonstrates listing all files in the virtual filesystem
+func listFilesHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		// For memory filesystem, we can list files
+		// This is a simplified example
+		files := []string{
+			"/readme.txt",
+			"/data/users.json",
+			"/uploads/",
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Files listed successfully",
+			"count":   len(files),
+			"files":   files,
+			"note":    "This is a simplified list from the memory filesystem",
+		})
+	}
+}
+
+// fileExistsHandler demonstrates checking if a file exists
+func fileExistsHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		filename := ctx.Params()["filename"]
+		if filename == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Filename is required",
+			})
+		}
+
+		filePath := "/" + filename
+		exists := fm.Exists(filePath)
+
+		return ctx.JSON(200, map[string]interface{}{
+			"filename": filename,
+			"path":     filePath,
+			"exists":   exists,
+		})
+	}
+}
+
+// fileInfoHandler demonstrates getting file information
+func fileInfoHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		filename := ctx.Params()["filename"]
+		if filename == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Filename is required",
+			})
+		}
+
+		filePath := "/" + filename
+
+		// Check if file exists
+		if !fm.Exists(filePath) {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "File not found",
+				"message": fmt.Sprintf("File '%s' does not exist", filename),
+			})
+		}
+
+		// Read file to get size
+		content, err := fm.Read(filePath)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": "Failed to read file",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "File information retrieved",
+			"filename": filename,
+			"path":     filePath,
+			"size":     len(content),
+		})
+	}
+}
+
+// deleteFileHandler demonstrates deleting a file
+func deleteFileHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		filename := ctx.Params()["filename"]
+		if filename == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Filename is required",
+			})
+		}
+
+		filePath := "/" + filename
+
+		// Check if file exists
+		if !fm.Exists(filePath) {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "File not found",
+				"message": fmt.Sprintf("File '%s' does not exist", filename),
+			})
+		}
+
+		// Delete file
+		err := fm.Delete(filePath)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": "Failed to delete file",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "File deleted successfully",
+			"filename": filename,
+			"path":     filePath,
+		})
+	}
+}
+
+// ============================================================================
+// Handler Functions - Directory Operations
+// ============================================================================
+
+// createDirectoryHandler demonstrates creating a directory
+func createDirectoryHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		dirname := ctx.FormValue("dirname")
+		if dirname == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":   "Directory name is required",
+				"message": "Please provide 'dirname' in the request body",
+			})
+		}
+
+		dirPath := "/" + dirname
+
+		// Create directory
+		err := fm.CreateDir(dirPath)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": "Failed to create directory",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Directory created successfully",
+			"dirname": dirname,
+			"path":    dirPath,
+		})
+	}
+}
+
+// listDirectoryHandler demonstrates listing directory contents
+func listDirectoryHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		dirname := ctx.Params()["dirname"]
+		if dirname == "" {
+			return ctx.JSON(400, map[string]interface{}{
+				"error": "Directory name is required",
+			})
+		}
+
+		dirPath := "/" + dirname
+
+		// Check if directory exists
+		if !fm.Exists(dirPath) {
+			return ctx.JSON(404, map[string]interface{}{
+				"error":   "Directory not found",
+				"message": fmt.Sprintf("Directory '%s' does not exist", dirname),
+			})
+		}
+
+		// For this example, return a simplified list
+		// In a real application, you would implement proper directory listing
+		entries := []string{"users.json"}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message": "Directory listed successfully",
+			"dirname": dirname,
+			"path":    dirPath,
+			"count":   len(entries),
+			"entries": entries,
+			"note":    "This is a simplified example",
+		})
+	}
+}
+
+// ============================================================================
+// Handler Functions - File Validation and Security
+// ============================================================================
+
+// uploadValidatedFileHandler demonstrates file upload with validation
+func uploadValidatedFileHandler(fm pkg.FileManager) func(pkg.Context) error {
+	return func(ctx pkg.Context) error {
+		// Get uploaded file
+		file, err := ctx.FormFile("file")
+		if err != nil {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":   "No file uploaded",
+				"message": "Please provide a file with the 'file' field",
+			})
+		}
+
+		// Validate file size (max 10MB)
+		maxSize := int64(10 * 1024 * 1024)
+		if file.Size > maxSize {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":   "File too large",
+				"message": fmt.Sprintf("File size must be less than %d bytes", maxSize),
+				"size":    file.Size,
+			})
+		}
+
+		// Validate file extension (allow only .txt, .json, .md)
+		allowedExtensions := []string{".txt", ".json", ".md"}
+		validExtension := false
+		for _, ext := range allowedExtensions {
+			if len(file.Filename) >= len(ext) && file.Filename[len(file.Filename)-len(ext):] == ext {
+				validExtension = true
+				break
+			}
+		}
+
+		if !validExtension {
+			return ctx.JSON(400, map[string]interface{}{
+				"error":              "Invalid file type",
+				"message":            "Only .txt, .json, and .md files are allowed",
+				"allowed_extensions": allowedExtensions,
+			})
+		}
+
+		// Sanitize filename (remove path traversal attempts)
+		sanitizedFilename := sanitizeFilename(file.Filename)
+
+		// Save file to virtual filesystem
+		uploadPath := "/uploads/" + sanitizedFilename
+		err = fm.Write(uploadPath, file.Content)
+		if err != nil {
+			return ctx.JSON(500, map[string]interface{}{
+				"error": "Failed to save file",
+			})
+		}
+
+		return ctx.JSON(200, map[string]interface{}{
+			"message":  "File uploaded and validated successfully",
+			"filename": sanitizedFilename,
+			"size":     file.Size,
+			"path":     uploadPath,
+			"validation": map[string]interface{}{
+				"size_check":      "passed",
+				"extension_check": "passed",
+				"sanitization":    "applied",
+			},
+		})
+	}
+}
+
+// sanitizeFilename removes potentially dangerous characters from filenames
+func sanitizeFilename(filename string) string {
+	// Remove path separators and other dangerous characters
+	sanitized := ""
+	for _, char := range filename {
+		if char == '/' || char == '\\' {
+			continue
+		}
+		sanitized += string(char)
+	}
+	// Also remove any ".." sequences
+	for i := 0; i < len(sanitized)-1; i++ {
+		if sanitized[i] == '.' && sanitized[i+1] == '.' {
+			sanitized = sanitized[:i] + sanitized[i+2:]
+			i--
+		}
+	}
+	return sanitized
 }

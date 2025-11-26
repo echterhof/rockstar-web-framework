@@ -251,6 +251,9 @@ func (m *testMockDB) Migrate() error                { return nil }
 func (m *testMockDB) CreateTables() error           { return nil }
 func (m *testMockDB) DropTables() error             { return nil }
 func (m *testMockDB) InitializePluginTables() error { return nil }
+func (m *testMockDB) GetQuery(name string) (string, error) {
+	return "", errors.New("query not found")
+}
 
 // Helper functions for creating test data
 
@@ -489,5 +492,16 @@ func cleanupServer(server pkg.Server) {
 func cleanupServers(servers []pkg.Server) {
 	for _, server := range servers {
 		cleanupServer(server)
+	}
+}
+
+// createTestDatabaseConfig creates a test database configuration
+func createTestDatabaseConfig() pkg.DatabaseConfig {
+	return pkg.DatabaseConfig{
+		Driver:   "sqlite3",
+		Database: ":memory:",
+		Options: map[string]string{
+			"sql_dir": "../sql",
+		},
 	}
 }

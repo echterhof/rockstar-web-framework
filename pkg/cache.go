@@ -16,18 +16,18 @@ var (
 
 // CacheConfig holds configuration options for the cache system
 type CacheConfig struct {
-	// Type specifies the cache backend type
+	// Type specifies the cache backend type.
 	// Supported values: "memory", "distributed"
 	// Default: "memory"
 	Type string
 
-	// MaxSize specifies the maximum cache size in bytes
-	// 0 means no limit
+	// MaxSize specifies the maximum cache size in bytes.
+	// 0 means no limit. Negative values are normalized to 0.
 	// Default: 0 (unlimited)
 	MaxSize int64
 
-	// DefaultTTL specifies the default time-to-live for cache entries
-	// 0 means no expiration
+	// DefaultTTL specifies the default time-to-live for cache entries.
+	// 0 means no expiration. Negative values are normalized to 0.
 	// Default: 0 (no expiration)
 	DefaultTTL time.Duration
 }
@@ -71,15 +71,7 @@ type cacheManagerImpl struct {
 // NewCacheManager creates a new cache manager instance with the given configuration
 func NewCacheManager(config CacheConfig) CacheManager {
 	// Apply default values for zero values
-	if config.Type == "" {
-		config.Type = "memory"
-	}
-	if config.MaxSize < 0 {
-		config.MaxSize = 0 // Treat negative as unlimited
-	}
-	if config.DefaultTTL < 0 {
-		config.DefaultTTL = 0 // Treat negative as no expiration
-	}
+	config.ApplyDefaults()
 
 	return &cacheManagerImpl{
 		cache:         make(map[string]*cacheEntry),
@@ -92,14 +84,10 @@ func NewCacheManager(config CacheConfig) CacheManager {
 // NewCacheManagerWithDistributed creates a cache manager with distributed cache support
 func NewCacheManagerWithDistributed(config CacheConfig, distributed DistributedCache) CacheManager {
 	// Apply default values for zero values
-	if config.Type == "" {
+	config.ApplyDefaults()
+	// Override Type to "distributed" when using distributed cache
+	if config.Type == "memory" {
 		config.Type = "distributed"
-	}
-	if config.MaxSize < 0 {
-		config.MaxSize = 0 // Treat negative as unlimited
-	}
-	if config.DefaultTTL < 0 {
-		config.DefaultTTL = 0 // Treat negative as no expiration
 	}
 
 	return &cacheManagerImpl{

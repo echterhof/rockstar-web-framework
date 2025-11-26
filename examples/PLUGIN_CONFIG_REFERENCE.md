@@ -505,25 +505,309 @@ err := framework.PluginManager().LoadPluginsFromConfig("config.toml")
 
 ### Plugin Not Loading
 
-1. Check `enabled` flag is `true`
-2. Verify `path` is correct
-3. Check plugin manifest is valid
-4. Review dependency requirements
-5. Check framework version compatibility
+**Symptoms**: Plugin doesn't appear in loaded plugins list, no initialization logs
+
+**Common Causes and Solutions**:
+
+1. **Enabled flag is false**
+   - Check: `enabled: true` in plugin configuration
+   - Solution: Set `enabled: true` or remove the plugin from config
+
+2. **Incorrect path**
+   - Check: Verify the path exists and is accessible
+   - Solution: Use absolute path or correct relative path
+   - Example: `./plugins/my-plugin` or `/usr/local/plugins/my-plugin`
+
+3. **Invalid plugin manifest**
+   - Check: Validate plugin.yaml syntax
+   - Solution: Ensure all required fields are present (name, version, description)
+   - Use: `go run examples/test_manifest_parser.go plugin.yaml` to validate
+
+4. **Missing dependencies**
+   - Check: Review plugin manifest dependencies section
+   - Solution: Load dependency plugins first or install missing dependencies
+   - Example: If plugin requires `auth-plugin`, ensure it's loaded before
+
+5. **Framework version incompatibility**
+   - Check: Plugin manifest `framework.version` field
+   - Solution: Update plugin or framework to compatible versions
+   - Example: Plugin requires `>=1.0.0,<2.0.0`
+
+6. **Plugin binary not executable**
+   - Check: File permissions on plugin binary
+   - Solution: `chmod +x plugins/my-plugin/plugin` (Unix/Linux)
+
+7. **Load timeout exceeded**
+   - Check: Plugin initialization takes too long
+   - Solution: Increase `load_timeout` in global plugin settings
+   - Example: `load_timeout: 60` (seconds)
+
+**Debugging Steps**:
+```bash
+# Enable debug logging
+export ROCKSTAR_LOG_LEVEL=debug
+
+# Check plugin directory
+ls -la ./plugins/my-plugin
+
+# Validate plugin manifest
+go run examples/test_manifest_parser.go ./plugins/my-plugin/plugin.yaml
+
+# Check framework logs
+tail -f logs/framework.log | grep plugin
+```
 
 ### Permission Denied Errors
 
-1. Review plugin permissions in configuration
-2. Check security logs for violations
-3. Grant minimum required permissions
-4. Verify custom permissions are defined
+**Symptoms**: Plugin fails with "permission denied" or "access denied" errors
+
+**Common Causes and Solutions**:
+
+1. **Missing required permissions**
+   - Check: Plugin tries to access service without permission
+   - Solution: Grant required permission in configuration
+   - Example:
+     ```yaml
+     permissions:
+       database: true  # If plugin needs database access
+     ```
+
+2. **Filesystem permission denied**
+   - Check: Plugin tries to read/write files without filesystem permission
+   - Solution: Grant `filesystem: true` permission
+   - Warning: Only grant if plugin needs file access
+
+3. **Network permission denied**
+   - Check: Plugin tries to make HTTP requests without network permission
+   - Solution: Grant `network: true` permission
+   - Use case: OAuth providers, external APIs, Redis connections
+
+4. **Custom permission not defined**
+   - Check: Plugin requires custom permission not in configuration
+   - Solution: Add custom permission to config
+   - Example:
+     ```yaml
+     permissions:
+       custom:
+         user_management: true
+     ```
+
+5. **Security policy violation**
+   - Check: Security logs for policy violations
+   - Solution: Review and update security policies
+   - Location: Check framework security configuration
+
+**Debugging Steps**:
+```bash
+# Check security logs
+grep "permission denied" logs/security.log
+
+# Review plugin permissions
+cat plugin-config.yaml | grep -A 10 "permissions:"
+
+# Test with full permissions (temporarily)
+# Then reduce to minimum required
+```
+
+**Security Best Practices**:
+- Start with minimal permissions
+- Add permissions only when needed
+- Never grant `exec: true` unless absolutely necessary
+- Review permissions regularly
+- Use custom permissions for fine-grained control
 
 ### Load Order Issues
 
-1. Check plugin order in configuration
-2. Verify dependencies are loaded first
-3. Review priority settings
-4. Check for circular dependencies
+**Symptoms**: Plugin fails because dependency not available, hooks execute in wrong order
+
+**Common Causes and Solutions**:
+
+1. **Dependency loaded after dependent plugin**
+   - Check: Plugin order in configuration
+   - Solution: Move dependency plugins earlier in the list
+   - Example:
+     ```yaml
+     plugins:
+       - name: base-plugin      # Load first
+       - name: dependent-plugin # Load after base-plugin
+     ```
+
+2. **Circular dependencies**
+   - Check: Plugin A depends on B, B depends on A
+   - Solution: Refactor to remove circular dependency
+   - Alternative: Use event-based communication instead
+
+3. **Priority conflicts**
+   - Check: Multiple plugins with same priority
+   - Solution: Assign unique priorities or use load order
+   - Example:
+     ```yaml
+     - name: auth-plugin
+       priority: 200
+     - name: rate-limit-plugin
+       priority: 180  # Different priority
+     ```
+
+4. **Hook execution order incorrect**
+   - Check: Plugin hooks execute in unexpected order
+   - Solution: Adjust priority values (higher = earlier)
+   - Example: Authentication (200) before rate limiting (180)
+
+5. **Plugin initialization order matters**
+   - Check: Plugin B needs plugin A to be fully initialized
+   - Solution: Use startup hooks or event subscriptions
+   - Alternative: Implement lazy initialization
+
+**Debugging Steps**:
+```bash
+# Check plugin load order
+grep "Loading plugin" logs/framework.log
+
+# Check hook execution order
+grep "Executing hook" logs/framework.log
+
+# Visualize dependencies
+# Create a dependency graph from manifests
+```
+
+**Best Practices**:
+- Document plugin dependencies clearly
+- Use semantic versioning for dependencies
+- Test plugin load order in development
+- Use priority ranges consistently (see Priority section)
+
+### Configuration Errors
+
+**Symptoms**: Plugin fails to initialize, configuration validation errors
+
+**Common Causes and Solutions**:
+
+1. **Invalid YAML/JSON/TOML syntax**
+   - Check: Configuration file syntax
+   - Solution: Validate with linter or parser
+   - Tools: `yamllint`, `jsonlint`, or online validators
+
+2. **Missing required configuration**
+   - Check: Plugin manifest config schema
+   - Solution: Add required configuration values
+   - Example:
+     ```yaml
+     config:
+       api_key: "required-value"  # Was missing
+     ```
+
+3. **Type mismatch**
+   - Check: Configuration value types match schema
+   - Solution: Correct value types
+   - Example: `timeout: "30s"` not `timeout: 30`
+
+4. **Invalid duration format**
+   - Check: Duration strings use correct format
+   - Solution: Use Go duration format
+   - Valid: `"30s"`, `"5m"`, `"2h"`, `"24h"`
+   - Invalid: `"30 seconds"`, `"5 minutes"`
+
+5. **Configuration not reloading**
+   - Check: Hot reload enabled
+   - Solution: Enable hot reload or restart application
+   - Example: `hot_reload_enabled: true`
+
+**Debugging Steps**:
+```bash
+# Validate YAML syntax
+yamllint plugin-config.yaml
+
+# Validate JSON syntax
+jsonlint plugin-config.json
+
+# Check configuration loading
+grep "Loading configuration" logs/framework.log
+
+# Test configuration parsing
+go run examples/test_manifest_parser.go plugin-config.yaml
+```
+
+### Performance Issues
+
+**Symptoms**: Slow plugin loading, high memory usage, slow request processing
+
+**Common Causes and Solutions**:
+
+1. **Too many concurrent operations**
+   - Check: `max_concurrent_operations` setting
+   - Solution: Reduce concurrent operations
+   - Example: `max_concurrent_operations: 5`
+
+2. **Plugin initialization timeout**
+   - Check: Plugin takes too long to initialize
+   - Solution: Optimize plugin initialization or increase timeout
+   - Example: `load_timeout: 60`
+
+3. **Memory leaks in plugin**
+   - Check: Memory usage grows over time
+   - Solution: Review plugin code for leaks
+   - Tools: Use pprof for memory profiling
+
+4. **Too many plugins loaded**
+   - Check: Number of active plugins
+   - Solution: Disable unused plugins
+   - Example: Set `enabled: false` for unused plugins
+
+5. **Hook execution overhead**
+   - Check: Too many hooks or slow hook handlers
+   - Solution: Optimize hook handlers, reduce hook count
+   - Profile: Use framework profiling tools
+
+**Debugging Steps**:
+```bash
+# Check memory usage
+ps aux | grep myapp
+
+# Profile memory
+curl http://localhost:8080/debug/pprof/heap > heap.prof
+go tool pprof heap.prof
+
+# Profile CPU
+curl http://localhost:8080/debug/pprof/profile?seconds=30 > cpu.prof
+go tool pprof cpu.prof
+
+# Check plugin metrics
+curl http://localhost:8080/metrics | grep plugin
+```
+
+### Common Error Messages
+
+**"Plugin not found"**
+- Cause: Plugin path incorrect or plugin not installed
+- Solution: Verify path and install plugin
+
+**"Version mismatch"**
+- Cause: Plugin requires different framework version
+- Solution: Update plugin or framework
+
+**"Dependency not satisfied"**
+- Cause: Required dependency plugin not loaded
+- Solution: Load dependency plugin first
+
+**"Permission denied: database"**
+- Cause: Plugin tries to access database without permission
+- Solution: Add `database: true` to permissions
+
+**"Configuration validation failed"**
+- Cause: Required configuration missing or invalid
+- Solution: Check plugin manifest for required config
+
+**"Hook registration failed"**
+- Cause: Invalid hook type or priority
+- Solution: Check hook type and priority values
+
+**"Plugin initialization timeout"**
+- Cause: Plugin takes too long to initialize
+- Solution: Increase `load_timeout` or optimize plugin
+
+**"Circular dependency detected"**
+- Cause: Plugin A depends on B, B depends on A
+- Solution: Refactor to remove circular dependency
 
 ## See Also
 

@@ -115,3 +115,24 @@ message:
     processing: "Processing request..."
     loading: "Loading data..."
     saving: "Saving data..."
+
+# Plural translations for plural_translation_example.go
+items:
+  one: "You have {{count}} item"
+  other: "You have {{count}} items"
+
+files:
+  one: "{{count}} file selected"
+  other: "{{count}} files selected"
+
+users:
+  one: "{{count}} user online"
+  other: "{{count}} users online"
+
+messages:
+  one: "You have {{count}} unread message"
+  other: "You have {{count}} unread messages"
+
+downloads:
+  one: "{{count}} download remaining"
+  other: "{{count}} downloads remaining"

@@ -1,138 +1,389 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
+	"log"
+	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-	fmt.Println("Rockstar Web Framework - Context Manager Example")
-	fmt.Println("================================================")
-
-	// Create a sample HTTP request
-	u, _ := url.Parse("/users/123?filter=active&page=1")
-	req := &pkg.Request{
-		Method: "GET",
-		URL:    u,
-		Header: http.Header{
-			"Content-Type":  []string{"application/json"},
-			"Authorization": []string{"Bearer abc123"},
-			"User-Agent":    []string{"RockstarFramework/1.0"},
+	// ============================================================================
+	// Configuration Setup
+	// ============================================================================
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			ReadTimeout:  10 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			EnableHTTP1:  true,
+			EnableHTTP2:  true,
 		},
-		Params: map[string]string{
-			"id": "123",
+		DatabaseConfig: pkg.DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: "context_example.db",
 		},
-		Query: map[string]string{
-			"sort": "name",
+		CacheConfig: pkg.CacheConfig{
+			Type:       "memory",
+			MaxSize:    10 * 1024 * 1024, // 10 MB
+			DefaultTTL: 5 * time.Minute,
 		},
-		Form: map[string]string{
-			"username": "john_doe",
-			"email":    "john@example.com",
+		SessionConfig: pkg.SessionConfig{
+			StorageType:     pkg.SessionStorageCache, // Use cache instead of database for simplicity
+			CookieName:      "rockstar_session",
+			SessionLifetime: 24 * time.Hour,
+			CleanupInterval: 15 * time.Minute, // Cleanup expired sessions every 15 minutes
+			CookieSecure:    false,
+			CookieHTTPOnly:  true,
+			EncryptionKey:   []byte("12345678901234567890123456789012"),
 		},
-		ID:       "req-12345",
-		TenantID: "tenant-abc",
-		UserID:   "user-456",
+		I18nConfig: pkg.I18nConfig{
+			DefaultLocale:     "en",
+			LocalesDir:        "./examples/locales",
+			SupportedLocales:  []string{"en", "de"},
+			FallbackToDefault: true,
+		},
 	}
 
-	// Create a response writer
-	w := httptest.NewRecorder()
-	resp := pkg.NewResponseWriter(w)
+	// ============================================================================
+	// Framework Initialization
+	// ============================================================================
+	app, err := pkg.New(config)
+	if err != nil {
+		log.Fatalf("Failed to create framework: %v", err)
+	}
 
-	// Create the context
-	baseCtx := context.Background()
-	ctx := pkg.NewContext(req, resp, baseCtx)
+	// ============================================================================
+	// Route Registration
+	// ============================================================================
+	router := app.Router()
 
-	// Demonstrate context functionality
-	demonstrateContextUsage(ctx)
+	// Demonstrate request data access
+	router.GET("/api/users/:id", getUserHandler)
 
-	fmt.Println("\nResponse Status:", resp.Status())
-	fmt.Println("Response Body:", w.Body.String())
+	// Demonstrate response methods
+	router.GET("/api/json", jsonResponseHandler)
+	router.GET("/api/xml", xmlResponseHandler)
+	router.GET("/api/html", htmlResponseHandler)
+	router.GET("/api/string", stringResponseHandler)
+
+	// Demonstrate service access
+	router.GET("/api/services", servicesHandler)
+
+	// Demonstrate context control
+	router.GET("/api/timeout", timeoutHandler)
+	router.GET("/api/cancel", cancelHandler)
+
+	// Demonstrate cookie and header management
+	router.GET("/api/cookies", cookieHandler)
+	router.GET("/api/headers", headerHandler)
+
+	// Demonstrate form handling
+	router.POST("/api/form", formHandler)
+
+	// ============================================================================
+	// Server Startup
+	// ============================================================================
+	fmt.Println("🎸 Rockstar Web Framework - Context Example")
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+	fmt.Println("Server listening on: http://localhost:8080")
+	fmt.Println()
+	fmt.Println("Try these commands:")
+	fmt.Println("  # Request data access (params, query, headers)")
+	fmt.Println("  curl http://localhost:8080/api/users/123?sort=name&filter=active")
+	fmt.Println()
+	fmt.Println("  # Response methods")
+	fmt.Println("  curl http://localhost:8080/api/json")
+	fmt.Println("  curl http://localhost:8080/api/xml")
+	fmt.Println("  curl http://localhost:8080/api/html")
+	fmt.Println("  curl http://localhost:8080/api/string")
+	fmt.Println()
+	fmt.Println("  # Service access (DB, Cache, Session, Config, I18n)")
+	fmt.Println("  curl http://localhost:8080/api/services")
+	fmt.Println()
+	fmt.Println("  # Context control (timeout, cancel)")
+	fmt.Println("  curl http://localhost:8080/api/timeout")
+	fmt.Println("  curl http://localhost:8080/api/cancel")
+	fmt.Println()
+	fmt.Println("  # Cookie and header management")
+	fmt.Println("  curl -v http://localhost:8080/api/cookies")
+	fmt.Println("  curl -v http://localhost:8080/api/headers")
+	fmt.Println()
+	fmt.Println("  # Form handling")
+	fmt.Println("  curl -X POST http://localhost:8080/api/form -d 'username=john&email=john@example.com'")
+	fmt.Println()
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+
+	if err := app.Listen(":8080"); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
 }
 
-func demonstrateContextUsage(ctx pkg.Context) {
-	fmt.Println("\n1. Request Information:")
-	fmt.Printf("   Method: %s\n", ctx.Request().Method)
-	fmt.Printf("   URL: %s\n", ctx.Request().URL.String())
-	fmt.Printf("   Request ID: %s\n", ctx.Request().ID)
-	fmt.Printf("   Tenant ID: %s\n", ctx.Request().TenantID)
-	fmt.Printf("   User ID: %s\n", ctx.Request().UserID)
+// ============================================================================
+// Handler Functions - Request Data Access
+// ============================================================================
 
-	fmt.Println("\n2. Route Parameters:")
-	params := ctx.Params()
-	for key, value := range params {
-		fmt.Printf("   %s = %s\n", key, value)
-	}
+// getUserHandler demonstrates accessing request data: params, query, headers, body
+func getUserHandler(ctx pkg.Context) error {
+	// Access route parameters
+	userID := ctx.Params()["id"]
 
-	fmt.Println("\n3. Query Parameters:")
+	// Access query parameters
 	query := ctx.Query()
-	for key, value := range query {
-		fmt.Printf("   %s = %s\n", key, value)
-	}
+	sort := query["sort"]
+	filter := query["filter"]
 
-	fmt.Println("\n4. Headers:")
+	// Access headers
 	headers := ctx.Headers()
-	for key, value := range headers {
-		fmt.Printf("   %s = %s\n", key, value)
+	contentType := ctx.GetHeader("Content-Type")
+	userAgent := ctx.GetHeader("User-Agent")
+
+	// Access request body (if any)
+	body := ctx.Body()
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Request data accessed successfully",
+		"data": map[string]interface{}{
+			"params": map[string]string{
+				"id": userID,
+			},
+			"query": map[string]string{
+				"sort":   sort,
+				"filter": filter,
+			},
+			"headers": map[string]string{
+				"content_type": contentType,
+				"user_agent":   userAgent,
+				"all_headers":  fmt.Sprintf("%d headers received", len(headers)),
+			},
+			"body_length": len(body),
+		},
+	})
+}
+
+// ============================================================================
+// Handler Functions - Response Methods
+// ============================================================================
+
+// jsonResponseHandler demonstrates JSON response
+func jsonResponseHandler(ctx pkg.Context) error {
+	data := map[string]interface{}{
+		"message": "This is a JSON response",
+		"status":  "success",
+		"data": map[string]interface{}{
+			"id":   123,
+			"name": "John Doe",
+		},
+	}
+	return ctx.JSON(200, data)
+}
+
+// xmlResponseHandler demonstrates XML response
+func xmlResponseHandler(ctx pkg.Context) error {
+	type User struct {
+		ID   int    `xml:"id"`
+		Name string `xml:"name"`
+	}
+	user := User{ID: 123, Name: "John Doe"}
+	return ctx.XML(200, user)
+}
+
+// htmlResponseHandler demonstrates HTML response
+func htmlResponseHandler(ctx pkg.Context) error {
+	html := `
+<!DOCTYPE html>
+<html>
+<head><title>Context Example</title></head>
+<body>
+	<h1>HTML Response from Context</h1>
+	<p>This demonstrates the HTML response method.</p>
+</body>
+</html>
+`
+	return ctx.HTML(200, "inline", html)
+}
+
+// stringResponseHandler demonstrates String response
+func stringResponseHandler(ctx pkg.Context) error {
+	return ctx.String(200, "This is a plain text response from the Context")
+}
+
+// ============================================================================
+// Handler Functions - Service Access
+// ============================================================================
+
+// servicesHandler demonstrates accessing framework services
+func servicesHandler(ctx pkg.Context) error {
+	// Access database manager
+	db := ctx.DB()
+	dbConnected := db != nil
+
+	// Access cache manager
+	cache := ctx.Cache()
+	cacheAvailable := cache != nil
+
+	// Access session manager
+	session := ctx.Session()
+	sessionAvailable := session != nil
+
+	// Access config manager
+	config := ctx.Config()
+	configAvailable := config != nil
+
+	// Access i18n manager
+	i18n := ctx.I18n()
+	i18nAvailable := i18n != nil
+
+	// Access logger
+	logger := ctx.Logger()
+	if logger != nil {
+		logger.Info("Services accessed", "endpoint", "/api/services")
 	}
 
-	fmt.Println("\n5. Form Data:")
-	fmt.Printf("   Username: %s\n", ctx.FormValue("username"))
-	fmt.Printf("   Email: %s\n", ctx.FormValue("email"))
+	// Access metrics collector
+	metrics := ctx.Metrics()
+	metricsAvailable := metrics != nil
 
-	fmt.Println("\n6. Header Access (case-insensitive):")
-	fmt.Printf("   Content-Type: %s\n", ctx.GetHeader("content-type"))
-	fmt.Printf("   Authorization: %s\n", ctx.GetHeader("AUTHORIZATION"))
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "All services accessed successfully",
+		"services": map[string]bool{
+			"database": dbConnected,
+			"cache":    cacheAvailable,
+			"session":  sessionAvailable,
+			"config":   configAvailable,
+			"i18n":     i18nAvailable,
+			"logger":   logger != nil,
+			"metrics":  metricsAvailable,
+		},
+	})
+}
 
-	fmt.Println("\n7. Authentication Status:")
-	fmt.Printf("   Is Authenticated: %t\n", ctx.IsAuthenticated())
+// ============================================================================
+// Handler Functions - Context Control
+// ============================================================================
 
-	fmt.Println("\n8. Context Control:")
-	// Demonstrate timeout context
-	timeoutCtx := ctx.WithTimeout(5 * 1000000000) // 5 seconds
+// timeoutHandler demonstrates WithTimeout context control
+func timeoutHandler(ctx pkg.Context) error {
+	// Create a context with timeout
+	timeoutCtx := ctx.WithTimeout(5 * time.Second)
+
+	// Check if context has deadline
 	deadline, hasDeadline := timeoutCtx.Context().Deadline()
-	fmt.Printf("   Has Timeout: %t\n", hasDeadline)
-	if hasDeadline {
-		fmt.Printf("   Deadline: %s\n", deadline.Format("15:04:05"))
-	}
 
-	// Demonstrate cancel context
+	return ctx.JSON(200, map[string]interface{}{
+		"message":      "Timeout context created",
+		"has_deadline": hasDeadline,
+		"deadline":     deadline.Format(time.RFC3339),
+		"timeout":      "5 seconds",
+	})
+}
+
+// cancelHandler demonstrates WithCancel context control
+func cancelHandler(ctx pkg.Context) error {
+	// Create a cancellable context
 	cancelCtx, cancel := ctx.WithCancel()
-	fmt.Printf("   Context Cancelled (before): %t\n", cancelCtx.Context().Err() != nil)
+
+	// Check context before cancellation
+	beforeCancel := cancelCtx.Context().Err() == nil
+
+	// Cancel the context
 	cancel()
-	fmt.Printf("   Context Cancelled (after): %t\n", cancelCtx.Context().Err() != nil)
 
-	fmt.Println("\n9. Response Operations:")
-	// Set some headers
-	ctx.SetHeader("X-Request-ID", ctx.Request().ID)
-	ctx.SetHeader("X-Tenant-ID", ctx.Request().TenantID)
+	// Check context after cancellation
+	afterCancel := cancelCtx.Context().Err() != nil
 
+	return ctx.JSON(200, map[string]interface{}{
+		"message":       "Cancel context demonstrated",
+		"before_cancel": beforeCancel,
+		"after_cancel":  afterCancel,
+	})
+}
+
+// ============================================================================
+// Handler Functions - Cookie and Header Management
+// ============================================================================
+
+// cookieHandler demonstrates cookie management
+func cookieHandler(ctx pkg.Context) error {
 	// Set a cookie
 	cookie := &pkg.Cookie{
-		Name:     "session",
-		Value:    "session-token-xyz",
+		Name:     "session_id",
+		Value:    "abc123xyz",
 		Path:     "/",
+		MaxAge:   3600,
 		HttpOnly: true,
+		Secure:   false,
 	}
 	ctx.SetCookie(cookie)
 
-	// Send JSON response
-	responseData := map[string]interface{}{
-		"message":    "Context manager working correctly!",
-		"request_id": ctx.Request().ID,
-		"tenant_id":  ctx.Request().TenantID,
-		"params":     ctx.Params(),
-		"query":      ctx.Query(),
+	// Try to get a cookie (if sent by client)
+	existingCookie, err := ctx.GetCookie("session_id")
+	var cookieValue string
+	if err == nil && existingCookie != nil {
+		cookieValue = existingCookie.Value
+	} else {
+		cookieValue = "not found (will be set in response)"
 	}
 
-	err := ctx.JSON(200, responseData)
-	if err != nil {
-		fmt.Printf("   Error sending JSON response: %v\n", err)
-	} else {
-		fmt.Println("   JSON response sent successfully")
+	return ctx.JSON(200, map[string]interface{}{
+		"message":        "Cookie operations demonstrated",
+		"cookie_set":     "session_id=abc123xyz",
+		"cookie_read":    cookieValue,
+		"check_response": "Check Set-Cookie header in response",
+	})
+}
+
+// headerHandler demonstrates header management
+func headerHandler(ctx pkg.Context) error {
+	// Set custom headers
+	ctx.SetHeader("X-Custom-Header", "CustomValue")
+	ctx.SetHeader("X-Request-ID", "req-12345")
+	ctx.SetHeader("X-API-Version", "1.0")
+
+	// Get headers from request
+	userAgent := ctx.GetHeader("User-Agent")
+	acceptHeader := ctx.GetHeader("Accept")
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Header operations demonstrated",
+		"request_headers": map[string]string{
+			"user_agent": userAgent,
+			"accept":     acceptHeader,
+		},
+		"response_headers": map[string]string{
+			"X-Custom-Header": "CustomValue",
+			"X-Request-ID":    "req-12345",
+			"X-API-Version":   "1.0",
+		},
+		"check_response": "Check response headers with curl -v",
+	})
+}
+
+// ============================================================================
+// Handler Functions - Form Handling
+// ============================================================================
+
+// formHandler demonstrates form data handling
+func formHandler(ctx pkg.Context) error {
+	// Access form values
+	username := ctx.FormValue("username")
+	email := ctx.FormValue("email")
+
+	// Validate form data
+	if username == "" || email == "" {
+		return ctx.JSON(400, map[string]interface{}{
+			"error":   "Missing required fields",
+			"message": "Both username and email are required",
+		})
 	}
+
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Form data processed successfully",
+		"data": map[string]string{
+			"username": username,
+			"email":    email,
+		},
+	})
 }

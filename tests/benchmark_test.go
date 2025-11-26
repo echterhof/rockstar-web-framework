@@ -12,141 +12,147 @@ import (
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-// BenchmarkRockstarSimpleRoute benchmarks a simple GET route in Rockstar framework
+// BenchmarkRockstarSimpleRoute benchmarks simple GET request handling
 func BenchmarkRockstarSimpleRoute(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.GET("/api/hello", func(ctx pkg.Context) error {
-		return ctx.String(http.StatusOK, "Hello, World!")
+	// Register simple route
+	framework.Router().GET("/hello", func(ctx pkg.Context) error {
+		return ctx.String(200, "Hello, World!")
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19301"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19301"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/hello"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19301/hello")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
 }
 
-// BenchmarkRockstarJSONResponse benchmarks JSON response handling
+// BenchmarkRockstarJSONResponse benchmarks JSON serialization
 func BenchmarkRockstarJSONResponse(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	type User struct {
-		ID       int    `json:"id"`
-		Name     string `json:"name"`
-		Email    string `json:"email"`
-		IsActive bool   `json:"is_active"`
-	}
-
-	router.GET("/api/user", func(ctx pkg.Context) error {
-		user := User{
-			ID:       1,
-			Name:     "John Doe",
-			Email:    "john@example.com",
-			IsActive: true,
-		}
-		return ctx.JSON(http.StatusOK, user)
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
 	})
-
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19302"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
-	defer server.Close()
+	defer framework.Shutdown(2 * time.Second)
 
-	time.Sleep(100 * time.Millisecond)
-
-	client := &http.Client{}
-	url := "http://" + addr + "/api/user"
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			resp, err := client.Get(url)
-			if err != nil {
-				b.Fatalf("Request failed: %v", err)
-			}
-			io.ReadAll(resp.Body)
-			resp.Body.Close()
-		}
-	})
-}
-
-// BenchmarkRockstarRouteParams benchmarks route with parameters
-func BenchmarkRockstarRouteParams(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Register JSON route
+	type Response struct {
+		Message string `json:"message"`
+		Status  string `json:"status"`
+		Code    int    `json:"code"`
 	}
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.GET("/api/users/:id/posts/:postId", func(ctx pkg.Context) error {
-		params := ctx.Params()
-		return ctx.JSON(http.StatusOK, map[string]string{
-			"user_id": params["id"],
-			"post_id": params["postId"],
+	framework.Router().GET("/json", func(ctx pkg.Context) error {
+		return ctx.JSON(200, Response{
+			Message: "Hello, World!",
+			Status:  "success",
+			Code:    200,
 		})
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19303"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19302"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/users/123/posts/456"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19302/json")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+	})
+}
+
+// BenchmarkRockstarRouteParams benchmarks route parameter extraction
+func BenchmarkRockstarRouteParams(b *testing.B) {
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
+	}
+	defer framework.Shutdown(2 * time.Second)
+
+	// Register route with parameters
+	framework.Router().GET("/users/:id/posts/:postId", func(ctx pkg.Context) error {
+		params := ctx.Params()
+		return ctx.String(200, fmt.Sprintf("User: %s, Post: %s", params["id"], params["postId"]))
+	})
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19303"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	// Reset timer before benchmark
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
+	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
+		for pb.Next() {
+			resp, err := client.Get("http://localhost:19303/users/123/posts/456")
+			if err != nil {
+				b.Errorf("Request failed: %v", err)
+				continue
+			}
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
@@ -154,103 +160,129 @@ func BenchmarkRockstarRouteParams(b *testing.B) {
 
 // BenchmarkRockstarPOSTRequest benchmarks POST request handling
 func BenchmarkRockstarPOSTRequest(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
+	}
+	defer framework.Shutdown(2 * time.Second)
+
+	// Register POST route
+	type RequestBody struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
 	}
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.POST("/api/users", func(ctx pkg.Context) error {
-		var user map[string]interface{}
-		if err := json.Unmarshal(ctx.Body(), &user); err != nil {
-			return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	framework.Router().POST("/users", func(ctx pkg.Context) error {
+		var body RequestBody
+		if err := json.Unmarshal(ctx.Body(), &body); err != nil {
+			return ctx.String(400, "Invalid request")
 		}
-		user["id"] = 1
-		return ctx.JSON(http.StatusCreated, user)
+		return ctx.JSON(201, map[string]string{
+			"id":    "123",
+			"name":  body.Name,
+			"email": body.Email,
+		})
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19304"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19304"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/users"
+	// Prepare request body
+	reqBody := RequestBody{Name: "John Doe", Email: "john@example.com"}
+	bodyBytes, _ := json.Marshal(reqBody)
 
-	userData := map[string]string{
-		"name":  "John Doe",
-		"email": "john@example.com",
-	}
-	jsonData, _ := json.Marshal(userData)
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
+			req, err := http.NewRequest("POST", "http://localhost:19304/users", bytes.NewReader(bodyBytes))
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request creation failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			if err != nil {
+				b.Errorf("Request failed: %v", err)
+				continue
+			}
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
 }
 
-// BenchmarkRockstarMiddleware benchmarks middleware execution
+// BenchmarkRockstarMiddleware benchmarks middleware execution overhead
 func BenchmarkRockstarMiddleware(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	// Add middleware
+	// Add multiple middleware
 	middleware1 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
-		ctx.SetHeader("X-Middleware-1", "executed")
+		ctx.SetHeader("X-Middleware-1", "true")
 		return next(ctx)
 	}
 
 	middleware2 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
-		ctx.SetHeader("X-Middleware-2", "executed")
+		ctx.SetHeader("X-Middleware-2", "true")
 		return next(ctx)
 	}
 
-	router.GET("/api/test", func(ctx pkg.Context) error {
-		return ctx.String(http.StatusOK, "OK")
-	}, middleware1, middleware2)
-
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19305"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
+	middleware3 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+		ctx.SetHeader("X-Middleware-3", "true")
+		return next(ctx)
 	}
-	defer server.Close()
 
+	// Register route with middleware
+	framework.Router().GET("/middleware", func(ctx pkg.Context) error {
+		return ctx.String(200, "OK")
+	}, middleware1, middleware2, middleware3)
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19305"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/test"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19305/middleware")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
@@ -258,44 +290,52 @@ func BenchmarkRockstarMiddleware(b *testing.B) {
 
 // BenchmarkRockstarMultipleRoutes benchmarks routing with many routes
 func BenchmarkRockstarMultipleRoutes(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	// Register 100 routes
+	// Register many routes
 	for i := 0; i < 100; i++ {
-		path := fmt.Sprintf("/api/route%d", i)
-		router.GET(path, func(ctx pkg.Context) error {
-			return ctx.String(http.StatusOK, "OK")
+		path := fmt.Sprintf("/route%d", i)
+		framework.Router().GET(path, func(ctx pkg.Context) error {
+			return ctx.String(200, "OK")
 		})
 	}
 
-	server.SetRouter(router)
+	// Register target route
+	framework.Router().GET("/target", func(ctx pkg.Context) error {
+		return ctx.String(200, "Target")
+	})
 
-	addr := "127.0.0.1:19306"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19306"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/route50"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19306/target")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
@@ -303,97 +343,122 @@ func BenchmarkRockstarMultipleRoutes(b *testing.B) {
 
 // BenchmarkRockstarConcurrentRequests benchmarks concurrent request handling
 func BenchmarkRockstarConcurrentRequests(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.GET("/api/concurrent", func(ctx pkg.Context) error {
-		// Simulate some work
-		time.Sleep(1 * time.Millisecond)
-		return ctx.JSON(http.StatusOK, map[string]string{"status": "ok"})
+	// Register route
+	framework.Router().GET("/concurrent", func(ctx pkg.Context) error {
+		return ctx.String(200, "OK")
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19307"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19307"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/concurrent"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
-	b.SetParallelism(100) // High concurrency
+	b.ReportAllocs()
+
+	// Run benchmark with high parallelism
+	b.SetParallelism(100)
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19307/concurrent")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
 }
 
-// BenchmarkRockstarRESTAPI benchmarks REST API operations
+// BenchmarkRockstarRESTAPI benchmarks REST operations
 func BenchmarkRockstarRESTAPI(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// In-memory data store
+	type Item struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	items := make(map[string]Item)
+	items["1"] = Item{ID: "1", Name: "Item 1"}
+	items["2"] = Item{ID: "2", Name: "Item 2"}
 
-	// Define RESTful routes
-	router.GET("/api/posts", func(ctx pkg.Context) error {
-		posts := []map[string]interface{}{
-			{"id": 1, "title": "Post 1"},
-			{"id": 2, "title": "Post 2"},
+	// Register REST routes
+	framework.Router().GET("/api/items", func(ctx pkg.Context) error {
+		itemList := make([]Item, 0, len(items))
+		for _, item := range items {
+			itemList = append(itemList, item)
 		}
-		return ctx.JSON(http.StatusOK, posts)
+		return ctx.JSON(200, itemList)
 	})
 
-	router.GET("/api/posts/:id", func(ctx pkg.Context) error {
+	framework.Router().GET("/api/items/:id", func(ctx pkg.Context) error {
 		id := ctx.Params()["id"]
-		return ctx.JSON(http.StatusOK, map[string]interface{}{
-			"id":    id,
-			"title": "Post " + id,
-		})
+		item, exists := items[id]
+		if !exists {
+			return ctx.String(404, "Not found")
+		}
+		return ctx.JSON(200, item)
 	})
 
-	server.SetRouter(router)
+	framework.Router().POST("/api/items", func(ctx pkg.Context) error {
+		var item Item
+		if err := json.Unmarshal(ctx.Body(), &item); err != nil {
+			return ctx.String(400, "Invalid request")
+		}
+		items[item.ID] = item
+		return ctx.JSON(201, item)
+	})
 
-	addr := "127.0.0.1:19308"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19308"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/posts"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			// Mix of GET and POST requests
+			resp, err := client.Get("http://localhost:19308/api/items/1")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
@@ -401,60 +466,73 @@ func BenchmarkRockstarRESTAPI(b *testing.B) {
 
 // BenchmarkRockstarAuthentication benchmarks authentication overhead
 func BenchmarkRockstarAuthentication(b *testing.B) {
-	db := newTestMockDB()
-	db.Connect(pkg.DatabaseConfig{Driver: "mock"})
-	authManager := pkg.NewAuthManager(db, "test-secret", pkg.OAuth2Config{})
-
-	// Create token
-	token, _ := authManager.CreateAccessToken("user123", "tenant456", []string{"read"}, 1*time.Hour)
-
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.GET("/api/protected", func(ctx pkg.Context) error {
-		authHeader := ctx.Headers()["Authorization"]
-		if authHeader == "" {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
-		}
-
-		user, err := authManager.AuthenticateOAuth2(authHeader)
-		if err != nil {
-			return ctx.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
-		}
-
-		return ctx.JSON(http.StatusOK, map[string]string{"user_id": user.ID})
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
 	})
-
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19309"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
-	defer server.Close()
+	defer framework.Shutdown(2 * time.Second)
 
+	// Create test token
+	db := newTestMockDB()
+	token := createTestAccessToken("test-token-123", "user-1", "tenant-1", []string{"read", "write"}, 1*time.Hour)
+	db.SaveAccessToken(token)
+
+	// Authentication middleware
+	authMiddleware := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+		authHeader := ctx.GetHeader("Authorization")
+		if authHeader == "" {
+			return ctx.String(401, "Unauthorized")
+		}
+
+		// Validate token
+		tokenValue := authHeader[len("Bearer "):]
+		_, err := db.ValidateAccessToken(tokenValue)
+		if err != nil {
+			return ctx.String(401, "Invalid token")
+		}
+
+		return next(ctx)
+	}
+
+	// Register protected route
+	framework.Router().GET("/protected", func(ctx pkg.Context) error {
+		return ctx.String(200, "Protected resource")
+	}, authMiddleware)
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19309"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/protected"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			req, _ := http.NewRequest("GET", url, nil)
-			req.Header.Set("Authorization", token.Token)
+			req, err := http.NewRequest("GET", "http://localhost:19309/protected", nil)
+			if err != nil {
+				b.Errorf("Request creation failed: %v", err)
+				continue
+			}
+			req.Header.Set("Authorization", "Bearer test-token-123")
 
 			resp, err := client.Do(req)
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
@@ -462,144 +540,361 @@ func BenchmarkRockstarAuthentication(b *testing.B) {
 
 // BenchmarkRockstarMemoryAllocation benchmarks memory allocation patterns
 func BenchmarkRockstarMemoryAllocation(b *testing.B) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework with minimal config
+	dbConfig := createTestDatabaseConfig()
+	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: dbConfig,
+		SessionConfig:  *createTestSessionConfig(),
+	})
+	if err != nil {
+		b.Fatalf("Failed to create framework: %v", err)
 	}
+	defer framework.Shutdown(2 * time.Second)
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	router.GET("/api/data", func(ctx pkg.Context) error {
-		// Create some data structures
+	// Register route
+	framework.Router().GET("/memory", func(ctx pkg.Context) error {
+		// Simulate typical request processing
 		data := make(map[string]interface{})
-		data["items"] = []int{1, 2, 3, 4, 5}
 		data["message"] = "Hello, World!"
-		data["nested"] = map[string]string{
-			"key1": "value1",
-			"key2": "value2",
-		}
-		return ctx.JSON(http.StatusOK, data)
+		data["timestamp"] = time.Now().Unix()
+		data["status"] = "success"
+		return ctx.JSON(200, data)
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19310"
-	if err := server.Listen(addr); err != nil {
-		b.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19310"); err != nil {
+			b.Logf("Server error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
-	client := &http.Client{}
-	url := "http://" + addr + "/api/data"
-
+	// Reset timer before benchmark
 	b.ResetTimer()
 	b.ReportAllocs()
+
+	// Run benchmark
 	b.RunParallel(func(pb *testing.PB) {
+		client := &http.Client{}
 		for pb.Next() {
-			resp, err := client.Get(url)
+			resp, err := client.Get("http://localhost:19310/memory")
 			if err != nil {
-				b.Fatalf("Request failed: %v", err)
+				b.Errorf("Request failed: %v", err)
+				continue
 			}
-			io.ReadAll(resp.Body)
+			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 		}
 	})
 }
 
-// Comparison benchmarks (conceptual - would need actual GoFiber/Gin implementations)
+// Comparison Benchmarks
+// These benchmarks provide a structure for comparing Rockstar with other frameworks
+// To add comparisons with GoFiber or Gin, implement the corresponding sub-benchmarks
 
-// BenchmarkComparison_SimpleRoute compares simple route performance
+// BenchmarkComparison_SimpleRoute compares simple route performance across frameworks
 func BenchmarkComparison_SimpleRoute(b *testing.B) {
 	b.Run("Rockstar", func(b *testing.B) {
-		BenchmarkRockstarSimpleRoute(b)
+		// Create framework with minimal config
+		dbConfig := createTestDatabaseConfig()
+		framework, err := pkg.New(pkg.FrameworkConfig{
+			DatabaseConfig: dbConfig,
+			SessionConfig:  *createTestSessionConfig(),
+		})
+		if err != nil {
+			b.Fatalf("Failed to create framework: %v", err)
+		}
+		defer framework.Shutdown(2 * time.Second)
+
+		// Register simple route
+		framework.Router().GET("/hello", func(ctx pkg.Context) error {
+			return ctx.String(200, "Hello, World!")
+		})
+
+		// Start server in background
+		go func() {
+			if err := framework.Listen(":19311"); err != nil {
+				b.Logf("Server error: %v", err)
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+
+		// Reset timer before benchmark
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		// Run benchmark
+		b.RunParallel(func(pb *testing.PB) {
+			client := &http.Client{}
+			for pb.Next() {
+				resp, err := client.Get("http://localhost:19311/hello")
+				if err != nil {
+					b.Errorf("Request failed: %v", err)
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		})
 	})
 
-	// Note: To add GoFiber and Gin benchmarks, you would need to:
-	// 1. Import those frameworks
-	// 2. Set up equivalent servers
-	// 3. Run the same benchmark tests
-	//
+	// TODO: Add GoFiber comparison
 	// b.Run("GoFiber", func(b *testing.B) {
-	//     BenchmarkGoFiberSimpleRoute(b)
+	//     // Implement GoFiber benchmark here
+	//     // app := fiber.New()
+	//     // app.Get("/hello", func(c *fiber.Ctx) error {
+	//     //     return c.SendString("Hello, World!")
+	//     // })
+	//     // go app.Listen(":19312")
+	//     // ... benchmark code ...
 	// })
-	//
+
+	// TODO: Add Gin comparison
 	// b.Run("Gin", func(b *testing.B) {
-	//     BenchmarkGinSimpleRoute(b)
+	//     // Implement Gin benchmark here
+	//     // router := gin.New()
+	//     // router.GET("/hello", func(c *gin.Context) {
+	//     //     c.String(200, "Hello, World!")
+	//     // })
+	//     // go router.Run(":19313")
+	//     // ... benchmark code ...
 	// })
 }
 
-// BenchmarkComparison_JSONResponse compares JSON response performance
+// BenchmarkComparison_JSONResponse compares JSON response performance across frameworks
 func BenchmarkComparison_JSONResponse(b *testing.B) {
 	b.Run("Rockstar", func(b *testing.B) {
-		BenchmarkRockstarJSONResponse(b)
+		// Create framework with minimal config
+		dbConfig := createTestDatabaseConfig()
+		framework, err := pkg.New(pkg.FrameworkConfig{
+			DatabaseConfig: dbConfig,
+			SessionConfig:  *createTestSessionConfig(),
+		})
+		if err != nil {
+			b.Fatalf("Failed to create framework: %v", err)
+		}
+		defer framework.Shutdown(2 * time.Second)
+
+		// Register JSON route
+		type Response struct {
+			Message string `json:"message"`
+			Status  string `json:"status"`
+			Code    int    `json:"code"`
+		}
+
+		framework.Router().GET("/json", func(ctx pkg.Context) error {
+			return ctx.JSON(200, Response{
+				Message: "Hello, World!",
+				Status:  "success",
+				Code:    200,
+			})
+		})
+
+		// Start server in background
+		go func() {
+			if err := framework.Listen(":19314"); err != nil {
+				b.Logf("Server error: %v", err)
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+
+		// Reset timer before benchmark
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		// Run benchmark
+		b.RunParallel(func(pb *testing.PB) {
+			client := &http.Client{}
+			for pb.Next() {
+				resp, err := client.Get("http://localhost:19314/json")
+				if err != nil {
+					b.Errorf("Request failed: %v", err)
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		})
 	})
 
-	// Add GoFiber and Gin comparisons here
+	// TODO: Add GoFiber comparison
+	// b.Run("GoFiber", func(b *testing.B) {
+	//     // Implement GoFiber JSON benchmark here
+	//     // app := fiber.New()
+	//     // app.Get("/json", func(c *fiber.Ctx) error {
+	//     //     return c.JSON(Response{...})
+	//     // })
+	//     // ... benchmark code ...
+	// })
+
+	// TODO: Add Gin comparison
+	// b.Run("Gin", func(b *testing.B) {
+	//     // Implement Gin JSON benchmark here
+	//     // router := gin.New()
+	//     // router.GET("/json", func(c *gin.Context) {
+	//     //     c.JSON(200, Response{...})
+	//     // })
+	//     // ... benchmark code ...
+	// })
 }
 
-// BenchmarkComparison_RouteParams compares route parameter extraction
+// BenchmarkComparison_RouteParams compares route parameter extraction across frameworks
 func BenchmarkComparison_RouteParams(b *testing.B) {
 	b.Run("Rockstar", func(b *testing.B) {
-		BenchmarkRockstarRouteParams(b)
+		// Create framework with minimal config
+		dbConfig := createTestDatabaseConfig()
+		framework, err := pkg.New(pkg.FrameworkConfig{
+			DatabaseConfig: dbConfig,
+			SessionConfig:  *createTestSessionConfig(),
+		})
+		if err != nil {
+			b.Fatalf("Failed to create framework: %v", err)
+		}
+		defer framework.Shutdown(2 * time.Second)
+
+		// Register route with parameters
+		framework.Router().GET("/users/:id/posts/:postId", func(ctx pkg.Context) error {
+			params := ctx.Params()
+			return ctx.String(200, fmt.Sprintf("User: %s, Post: %s", params["id"], params["postId"]))
+		})
+
+		// Start server in background
+		go func() {
+			if err := framework.Listen(":19315"); err != nil {
+				b.Logf("Server error: %v", err)
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+
+		// Reset timer before benchmark
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		// Run benchmark
+		b.RunParallel(func(pb *testing.PB) {
+			client := &http.Client{}
+			for pb.Next() {
+				resp, err := client.Get("http://localhost:19315/users/123/posts/456")
+				if err != nil {
+					b.Errorf("Request failed: %v", err)
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		})
 	})
 
-	// Add GoFiber and Gin comparisons here
+	// TODO: Add GoFiber comparison
+	// b.Run("GoFiber", func(b *testing.B) {
+	//     // Implement GoFiber route params benchmark here
+	//     // app := fiber.New()
+	//     // app.Get("/users/:id/posts/:postId", func(c *fiber.Ctx) error {
+	//     //     return c.SendString(fmt.Sprintf("User: %s, Post: %s", c.Params("id"), c.Params("postId")))
+	//     // })
+	//     // ... benchmark code ...
+	// })
+
+	// TODO: Add Gin comparison
+	// b.Run("Gin", func(b *testing.B) {
+	//     // Implement Gin route params benchmark here
+	//     // router := gin.New()
+	//     // router.GET("/users/:id/posts/:postId", func(c *gin.Context) {
+	//     //     c.String(200, fmt.Sprintf("User: %s, Post: %s", c.Param("id"), c.Param("postId")))
+	//     // })
+	//     // ... benchmark code ...
+	// })
 }
 
-// BenchmarkComparison_Middleware compares middleware execution
+// BenchmarkComparison_Middleware compares middleware execution overhead across frameworks
 func BenchmarkComparison_Middleware(b *testing.B) {
 	b.Run("Rockstar", func(b *testing.B) {
-		BenchmarkRockstarMiddleware(b)
+		// Create framework with minimal config
+		dbConfig := createTestDatabaseConfig()
+		framework, err := pkg.New(pkg.FrameworkConfig{
+			DatabaseConfig: dbConfig,
+			SessionConfig:  *createTestSessionConfig(),
+		})
+		if err != nil {
+			b.Fatalf("Failed to create framework: %v", err)
+		}
+		defer framework.Shutdown(2 * time.Second)
+
+		// Add multiple middleware
+		middleware1 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+			ctx.SetHeader("X-Middleware-1", "true")
+			return next(ctx)
+		}
+
+		middleware2 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+			ctx.SetHeader("X-Middleware-2", "true")
+			return next(ctx)
+		}
+
+		middleware3 := func(ctx pkg.Context, next pkg.HandlerFunc) error {
+			ctx.SetHeader("X-Middleware-3", "true")
+			return next(ctx)
+		}
+
+		// Register route with middleware
+		framework.Router().GET("/middleware", func(ctx pkg.Context) error {
+			return ctx.String(200, "OK")
+		}, middleware1, middleware2, middleware3)
+
+		// Start server in background
+		go func() {
+			if err := framework.Listen(":19316"); err != nil {
+				b.Logf("Server error: %v", err)
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+
+		// Reset timer before benchmark
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		// Run benchmark
+		b.RunParallel(func(pb *testing.PB) {
+			client := &http.Client{}
+			for pb.Next() {
+				resp, err := client.Get("http://localhost:19316/middleware")
+				if err != nil {
+					b.Errorf("Request failed: %v", err)
+					continue
+				}
+				io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+			}
+		})
 	})
 
-	// Add GoFiber and Gin comparisons here
-}
+	// TODO: Add GoFiber comparison
+	// b.Run("GoFiber", func(b *testing.B) {
+	//     // Implement GoFiber middleware benchmark here
+	//     // app := fiber.New()
+	//     // app.Use(func(c *fiber.Ctx) error {
+	//     //     c.Set("X-Middleware-1", "true")
+	//     //     return c.Next()
+	//     // })
+	//     // ... add more middleware ...
+	//     // app.Get("/middleware", func(c *fiber.Ctx) error {
+	//     //     return c.SendString("OK")
+	//     // })
+	//     // ... benchmark code ...
+	// })
 
-// Performance metrics helper
-type PerformanceMetrics struct {
-	RequestsPerSecond float64
-	AvgLatency        time.Duration
-	P95Latency        time.Duration
-	P99Latency        time.Duration
-	MemoryUsage       uint64
-	AllocsPerOp       uint64
-}
-
-// MeasurePerformance measures detailed performance metrics
-func MeasurePerformance(b *testing.B, url string) PerformanceMetrics {
-	client := &http.Client{}
-	latencies := make([]time.Duration, b.N)
-
-	start := time.Now()
-
-	for i := 0; i < b.N; i++ {
-		reqStart := time.Now()
-		resp, err := client.Get(url)
-		if err != nil {
-			b.Fatalf("Request failed: %v", err)
-		}
-		io.ReadAll(resp.Body)
-		resp.Body.Close()
-		latencies[i] = time.Since(reqStart)
-	}
-
-	duration := time.Since(start)
-
-	// Calculate metrics
-	metrics := PerformanceMetrics{
-		RequestsPerSecond: float64(b.N) / duration.Seconds(),
-	}
-
-	// Calculate average latency
-	var totalLatency time.Duration
-	for _, lat := range latencies {
-		totalLatency += lat
-	}
-	metrics.AvgLatency = totalLatency / time.Duration(b.N)
-
-	return metrics
+	// TODO: Add Gin comparison
+	// b.Run("Gin", func(b *testing.B) {
+	//     // Implement Gin middleware benchmark here
+	//     // router := gin.New()
+	//     // router.Use(func(c *gin.Context) {
+	//     //     c.Header("X-Middleware-1", "true")
+	//     //     c.Next()
+	//     // })
+	//     // ... add more middleware ...
+	//     // router.GET("/middleware", func(c *gin.Context) {
+	//     //     c.String(200, "OK")
+	//     // })
+	//     // ... benchmark code ...
+	// })
 }

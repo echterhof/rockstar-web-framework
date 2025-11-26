@@ -14,19 +14,61 @@ type PluginConfigFile struct {
 
 // PluginsConfig represents the plugins section of the configuration
 type PluginsConfig struct {
-	Enabled   bool                `json:"enabled" yaml:"enabled" toml:"enabled"`
-	Directory string              `json:"directory" yaml:"directory" toml:"directory"`
-	Plugins   []PluginConfigEntry `json:"plugins" yaml:"plugins" toml:"plugins"`
+	// Enabled indicates whether the plugin system is enabled globally.
+	// Default: true
+	Enabled bool `json:"enabled" yaml:"enabled" toml:"enabled"`
+
+	// Directory is the base directory for plugin files.
+	// Default: "./plugins"
+	Directory string `json:"directory" yaml:"directory" toml:"directory"`
+
+	// Plugins is the list of plugin configuration entries.
+	// Default: empty slice
+	Plugins []PluginConfigEntry `json:"plugins" yaml:"plugins" toml:"plugins"`
+}
+
+// ApplyDefaults applies default values to PluginsConfig
+func (c *PluginsConfig) ApplyDefaults() {
+	// Default Enabled to true if not explicitly set
+	// Note: We can't distinguish between false and unset for bool,
+	// so we assume false means explicitly disabled
+
+	// Default Directory to "./plugins" if empty
+	if c.Directory == "" {
+		c.Directory = "./plugins"
+	}
+
+	// Initialize Plugins to empty slice if nil
+	if c.Plugins == nil {
+		c.Plugins = []PluginConfigEntry{}
+	}
 }
 
 // PluginConfigEntry represents a single plugin configuration entry
 type PluginConfigEntry struct {
-	Name        string                 `json:"name" yaml:"name" toml:"name"`
-	Enabled     bool                   `json:"enabled" yaml:"enabled" toml:"enabled"`
-	Path        string                 `json:"path" yaml:"path" toml:"path"`
-	Priority    int                    `json:"priority" yaml:"priority" toml:"priority"`
-	Config      map[string]interface{} `json:"config" yaml:"config" toml:"config"`
-	Permissions PluginPermissions      `json:"permissions" yaml:"permissions" toml:"permissions"`
+	// Name is the unique identifier for the plugin.
+	// Required, no default
+	Name string `json:"name" yaml:"name" toml:"name"`
+
+	// Enabled indicates whether this plugin is enabled.
+	// Default: true
+	Enabled bool `json:"enabled" yaml:"enabled" toml:"enabled"`
+
+	// Path is the file path to the plugin binary.
+	// Required, no default
+	Path string `json:"path" yaml:"path" toml:"path"`
+
+	// Priority determines the plugin's execution order (lower values execute first).
+	// Default: 0
+	Priority int `json:"priority" yaml:"priority" toml:"priority"`
+
+	// Config provides plugin-specific configuration as key-value pairs.
+	// Default: empty map
+	Config map[string]interface{} `json:"config" yaml:"config" toml:"config"`
+
+	// Permissions defines what operations the plugin is allowed to perform.
+	// Default: all false (secure by default)
+	Permissions PluginPermissions `json:"permissions" yaml:"permissions" toml:"permissions"`
 }
 
 // LoadPluginsFromConfig loads plugins from a configuration file
@@ -61,6 +103,9 @@ func (m *pluginManagerImpl) LoadPluginsFromConfig(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to extract plugins config: %w", err)
 	}
+
+	// Apply defaults to plugins configuration
+	pluginsConfig.ApplyDefaults()
 
 	// Check if plugins are enabled globally
 	if !pluginsConfig.Enabled {
@@ -100,6 +145,9 @@ func (m *pluginManagerImpl) LoadPluginsFromConfig(configPath string) error {
 			Permissions: pluginEntry.Permissions,
 			Priority:    pluginEntry.Priority,
 		}
+
+		// Apply defaults to plugin config
+		config.ApplyDefaults()
 
 		// Load the plugin
 		if err := m.LoadPlugin(pluginPath, config); err != nil {

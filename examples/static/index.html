@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rockstar Web Framework - Static File Example</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 18px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: #764ba2;
+            font-size: 24px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 12px 0;
+            padding-left: 30px;
+            position: relative;
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 20px;
+        }
+
+        .api-endpoints {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .endpoint {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .endpoint:last-child {
+            margin-bottom: 0;
+        }
+
+        .method {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 12px;
+            margin-right: 10px;
+        }
+
+        .method.get {
+            background: #28a745;
+            color: white;
+        }
+
+        .method.post {
+            background: #007bff;
+            color: white;
+        }
+
+        .method.put {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .method.delete {
+            background: #dc3545;
+            color: white;
+        }
+
+        .path {
+            font-family: 'Courier New', monospace;
+            color: #333;
+        }
+
+        .description {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+            color: #666;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #28a745;
+            color: white;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            .logo {
+                font-size: 36px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">🎸</div>
+            <h1>Rockstar Web Framework</h1>
+            <p class="subtitle">High-Performance Go Web Framework</p>
+            <span class="status">✓ Server Running</span>
+        </div>
+
+        <div class="section">
+            <h2>Welcome</h2>
+            <p>
+                This is a static HTML file served by the Rockstar Web Framework. 
+                The framework provides powerful static file serving capabilities with 
+                support for multiple protocols and advanced features.
+            </p>
+        </div>
+
+        <div class="section">
+            <h2>Framework Features</h2>
+            <ul class="feature-list">
+                <li>Multi-Protocol Support (HTTP/1, HTTP/2, QUIC)</li>
+                <li>Multiple API Styles (REST, GraphQL, gRPC, SOAP)</li>
+                <li>Built-in Caching and Session Management</li>
+                <li>Database Integration with Multiple Drivers</li>
+                <li>Internationalization (i18n) Support</li>
+                <li>WebSocket Support</li>
+                <li>Plugin System for Extensibility</li>
+                <li>Middleware Pipeline</li>
+                <li>Multi-Tenancy Support</li>
+                <li>Comprehensive Error Handling</li>
+                <li>Monitoring and Metrics</li>
+                <li>Static File Serving</li>
+            </ul>
+        </div>
+
+        <div class="section">
+            <h2>Example API Endpoints</h2>
+            <div class="api-endpoints">
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/health</span>
+                    <div class="description">Health check endpoint</div>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/users</span>
+                    <div class="description">Get all users</div>
+                </div>
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/users</span>
+                    <div class="description">Create a new user</div>
+                </div>
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/users/:id</span>
+                    <div class="description">Get user by ID</div>
+                </div>
+                <div class="endpoint">
+                    <span class="method put">PUT</span>
+                    <span class="path">/api/users/:id</span>
+                    <div class="description">Update user by ID</div>
+                </div>
+                <div class="endpoint">
+                    <span class="method delete">DELETE</span>
+                    <span class="path">/api/users/:id</span>
+                    <div class="description">Delete user by ID</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Getting Started</h2>
+            <p>
+                To use static file serving in your application, configure the framework 
+                to serve files from a directory:
+            </p>
+            <div class="api-endpoints">
+                <div class="endpoint">
+                    <code style="display: block; padding: 10px; background: #f8f9fa; border-radius: 4px; font-family: 'Courier New', monospace;">
+                        router.Static("/static", pkg.NewOSFileSystem("./public"))
+                    </code>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>
+                <strong>Rockstar Web Framework</strong><br>
+                Built with ❤️ in Go<br>
+                <a href="https://github.com/echterhof/rockstar-web-framework" target="_blank">View on GitHub</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Simple client-side JavaScript to demonstrate static file serving
+        console.log('🎸 Rockstar Web Framework - Static file loaded successfully!');
+        
+        // Display current time
+        const now = new Date();
+        console.log('Page loaded at:', now.toLocaleString());
+        
+        // You can add more interactive features here
+        // For example, making API calls to the framework endpoints
+    </script>
+</body>
+</html>

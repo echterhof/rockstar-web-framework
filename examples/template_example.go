@@ -13,6 +13,10 @@ import (
 func main() {
 	// Create a new framework instance with proper session configuration
 	framework, err := pkg.New(pkg.FrameworkConfig{
+		DatabaseConfig: pkg.DatabaseConfig{
+			Driver:   "sqlite3",
+			Database: ":memory:",
+		},
 		SessionConfig: pkg.SessionConfig{
 			StorageType:     "cache",
 			SessionLifetime: 24 * time.Hour,

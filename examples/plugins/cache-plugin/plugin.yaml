@@ -1,55 +1,129 @@
+# ============================================================================
+# Cache Plugin Manifest
+# ============================================================================
+#
+# This manifest describes the cache plugin and its requirements.
+#
+# ============================================================================
+
 name: cache-plugin
 version: 1.0.0
-description: Cache plugin demonstrating caching middleware
+description: HTTP response caching plugin with intelligent cache key generation
 author: Rockstar Framework Team
 
+# Framework compatibility
 framework:
   version: ">=1.0.0"
 
+# Plugin dependencies
 dependencies: []
 
+# Required permissions
 permissions:
   database: false
-  cache: true
-  router: true
-  config: false
+  cache: true       # For accessing cache manager
+  router: true      # For registering cache middleware
+  config: true      # For accessing configuration
   filesystem: false
   network: false
   exec: false
 
+# Configuration schema
 config:
-  cache_duration:
-    type: duration
-    default: "5m"
-    description: Duration for which responses are cached
   enabled:
     type: bool
     default: true
-    description: Whether caching is enabled
+    description: Enable caching
+  
+  cache_duration:
+    type: duration
+    default: "10m"
+    description: Default cache duration
+  
+  max_cache_size:
+    type: string
+    default: "100MB"
+    description: Maximum cache size
+  
   cache_methods:
     type: array
     items: string
-    default: ["GET"]
+    default:
+      - "GET"
+      - "HEAD"
     description: HTTP methods to cache
+  
+  include_query_params:
+    type: bool
+    default: true
+    description: Include query parameters in cache key
+  
+  include_headers:
+    type: bool
+    default: false
+    description: Include headers in cache key
+  
+  custom_key_prefix:
+    type: string
+    default: "api_cache"
+    description: Custom prefix for cache keys
+  
   excluded_paths:
     type: array
     items: string
-    default: ["/admin", "/api/auth"]
+    default:
+      - "/admin"
+      - "/api/auth"
+      - "/api/user/profile"
     description: Paths to exclude from caching
+  
+  excluded_content_types:
+    type: array
+    items: string
+    default:
+      - "text/event-stream"
+      - "application/octet-stream"
+    description: Content types to exclude from caching
+  
+  invalidate_on_mutation:
+    type: bool
+    default: true
+    description: Invalidate cache on POST/PUT/DELETE requests
+  
+  invalidation_patterns:
+    type: array
+    items: string
+    default:
+      - "/api/users/*"
+      - "/api/posts/*"
+    description: Path patterns for cache invalidation
+  
+  compression_enabled:
+    type: bool
+    default: true
+    description: Enable response compression in cache
+  
+  compression_threshold:
+    type: string
+    default: "1KB"
+    description: Minimum response size for compression
 
+# Hook registrations
 hooks:
-  - type: startup
-    priority: 100
-  - type: pre_response
-    priority: 50
-  - type: shutdown
-    priority: 100
+  - type: pre_request
+    priority: 150
+  - type: post_request
+    priority: 150
 
+# Event subscriptions and publications
 events:
-  publishes: []
-  subscribes:
-    - cache.invalidate
+  publishes:
+    - cache.hit
+    - cache.miss
+    - cache.invalidated
+  subscribes: []
 
+# Exported services
 exports:
   - name: CacheService
-    description: Service for accessing cache statistics
+    description: HTTP response caching service

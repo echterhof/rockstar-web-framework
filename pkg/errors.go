@@ -101,11 +101,12 @@ const (
 	ErrCodeSQLInjectionDetected = "SQL_INJECTION_DETECTED"
 
 	// Database errors
-	ErrCodeDatabaseConnection  = "DATABASE_CONNECTION"
-	ErrCodeDatabaseQuery       = "DATABASE_QUERY"
-	ErrCodeDatabaseTransaction = "DATABASE_TRANSACTION"
-	ErrCodeRecordNotFound      = "RECORD_NOT_FOUND"
-	ErrCodeDuplicateRecord     = "DUPLICATE_RECORD"
+	ErrCodeDatabaseConnection   = "DATABASE_CONNECTION"
+	ErrCodeDatabaseQuery        = "DATABASE_QUERY"
+	ErrCodeDatabaseTransaction  = "DATABASE_TRANSACTION"
+	ErrCodeRecordNotFound       = "RECORD_NOT_FOUND"
+	ErrCodeDuplicateRecord      = "DUPLICATE_RECORD"
+	ErrCodeNoDatabaseConfigured = "NO_DATABASE_CONFIGURED"
 
 	// Session errors
 	ErrCodeSessionNotFound = "SESSION_NOT_FOUND"
@@ -648,4 +649,12 @@ func NewConfigurationError(key, reason string) *FrameworkError {
 		I18nParams: map[string]interface{}{"key": key, "reason": reason},
 		Details:    map[string]interface{}{"key": key, "reason": reason},
 	}
+}
+
+// ErrNoDatabaseConfigured is returned when database operations are attempted without a configured database
+var ErrNoDatabaseConfigured = &FrameworkError{
+	Code:       ErrCodeNoDatabaseConfigured,
+	Message:    "No database is configured. To use database features, provide a DatabaseConfig with Driver, Database, and credentials. See documentation: https://docs.rockstar-framework.com/database-setup",
+	StatusCode: http.StatusServiceUnavailable,
+	I18nKey:    "error.database.not_configured",
 }

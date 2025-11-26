@@ -16,10 +16,29 @@ import (
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-// This example demonstrates all major features of the Rockstar Web Framework
+// ============================================================================
+// Full Featured Application Example
+// ============================================================================
+// This example demonstrates all major features of the Rockstar Web Framework:
+// - Database integration
+// - Session management
+// - Authentication and authorization
+// - Caching
+// - Internationalization
+// - WebSocket support
+// - Static file serving
+// - Multiple API styles (REST, GraphQL)
+// - Multi-tenancy
+// - Monitoring and profiling
+// - Graceful shutdown
+
 func main() {
+	// ============================================================================
+	// Configuration Setup
+	// ============================================================================
 	// Create comprehensive framework configuration
 	config := pkg.FrameworkConfig{
+		// Server configuration with advanced features
 		ServerConfig: pkg.ServerConfig{
 			ReadTimeout:     15 * time.Second,
 			WriteTimeout:    15 * time.Second,
@@ -32,6 +51,7 @@ func main() {
 			EnablePprof:     true,
 			PprofPath:       "/debug/pprof",
 			ShutdownTimeout: 30 * time.Second,
+			// Multi-tenancy configuration with host-specific settings
 			HostConfigs: map[string]*pkg.HostConfig{
 				"api.example.com": {
 					Hostname: "api.example.com",
@@ -55,6 +75,7 @@ func main() {
 				},
 			},
 		},
+		// Database configuration - PostgreSQL for production
 		DatabaseConfig: pkg.DatabaseConfig{
 			Driver:          "postgres",
 			Host:            "localhost",
@@ -66,31 +87,36 @@ func main() {
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
 		},
+		// Cache configuration - in-memory cache with larger size
 		CacheConfig: pkg.CacheConfig{
 			Type:       "memory",
 			MaxSize:    500 * 1024 * 1024, // 500 MB
 			DefaultTTL: 10 * time.Minute,
 		},
+		// Session configuration - database-backed sessions
 		SessionConfig: pkg.SessionConfig{
 			StorageType:     pkg.SessionStorageDatabase,
 			CookieName:      "rockstar_session_id",
 			SessionLifetime: 24 * time.Hour,
-			CookieSecure:    true,
-			CookieHTTPOnly:  true,
+			CookieSecure:    true, // Enable in production with HTTPS
+			CookieHTTPOnly:  true, // Prevent JavaScript access
 			CookieSameSite:  "Strict",
 			EncryptionKey:   []byte("12345678901234567890123456789012"), // 32 bytes for AES-256
 			CleanupInterval: 10 * time.Minute,
 		},
+		// Configuration files - load from YAML files
 		ConfigFiles: []string{
 			"config.yaml",
 			"config.local.yaml",
 		},
+		// Internationalization configuration
 		I18nConfig: pkg.I18nConfig{
 			DefaultLocale:     "en",
 			LocalesDir:        "./locales",
 			SupportedLocales:  []string{"en", "de", "fr", "es"},
 			FallbackToDefault: true,
 		},
+		// Security configuration
 		SecurityConfig: pkg.SecurityConfig{
 			XFrameOptions:    "SAMEORIGIN",
 			EnableXSSProtect: true,
@@ -98,10 +124,11 @@ func main() {
 			MaxRequestSize:   20 * 1024 * 1024, // 20 MB
 			RequestTimeout:   60 * time.Second,
 			AllowedOrigins:   []string{"https://example.com"},
-			EncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", // 64 hex chars for 32 bytes
+			EncryptionKey:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			JWTSecret:        "your-secret-jwt-key",
 			CSRFTokenExpiry:  24 * time.Hour,
 		},
+		// Monitoring configuration
 		MonitoringConfig: pkg.MonitoringConfig{
 			EnableMetrics:        true,
 			MetricsPath:          "/metrics",
@@ -112,6 +139,7 @@ func main() {
 			EnableOptimization:   true,
 			OptimizationInterval: 10 * time.Second,
 		},
+		// Proxy configuration - for load balancing and circuit breaking
 		ProxyConfig: pkg.ProxyConfig{
 			LoadBalancerType:         "round_robin",
 			CircuitBreakerEnabled:    true,
@@ -129,7 +157,9 @@ func main() {
 		},
 	}
 
-	// Create framework instance
+	// ============================================================================
+	// Framework Initialization
+	// ============================================================================
 	app, err := pkg.New(config)
 	if err != nil {
 		log.Fatalf("Failed to create framework: %v", err)
@@ -147,33 +177,47 @@ func main() {
 	// Setup graceful shutdown
 	setupGracefulShutdown(app)
 
-	// Start server
+	// ============================================================================
+	// Server Startup
+	// ============================================================================
 	fmt.Println("🎸 Rockstar Web Framework - Full Featured Application")
-	fmt.Println("==================================================")
-	fmt.Println("Server starting on :8080")
-	fmt.Println("")
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
+	fmt.Println("Server starting on: http://localhost:8080")
+	fmt.Println()
 	fmt.Println("Available endpoints:")
-	fmt.Println("  http://localhost:8080/          - Home")
-	fmt.Println("  http://localhost:8080/health    - Health check")
-	fmt.Println("  http://localhost:8080/metrics   - Metrics")
-	fmt.Println("  http://localhost:8080/debug/pprof - Profiling")
-	fmt.Println("")
-	fmt.Println("Host-specific routes (use Host header or hosts file):")
-	fmt.Println("  api.example.com:8080            - API tenant")
-	fmt.Println("  admin.example.com:8080          - Admin tenant")
-	fmt.Println("")
-	fmt.Println("To test host-specific routes:")
+	fmt.Println("  http://localhost:8080/              - Home")
+	fmt.Println("  http://localhost:8080/health        - Health check")
+	fmt.Println("  http://localhost:8080/ready         - Readiness check")
+	fmt.Println("  http://localhost:8080/metrics       - Prometheus metrics")
+	fmt.Println("  http://localhost:8080/debug/pprof   - Profiling")
+	fmt.Println()
+	fmt.Println("API endpoints:")
+	fmt.Println("  http://localhost:8080/api/v1/status - API status")
+	fmt.Println("  http://localhost:8080/api/v1/profile - User profile (auth required)")
+	fmt.Println("  http://localhost:8080/ws            - WebSocket endpoint")
+	fmt.Println()
+	fmt.Println("Admin endpoints (auth required):")
+	fmt.Println("  http://localhost:8080/admin/users   - User management")
+	fmt.Println()
+	fmt.Println("Multi-tenancy (use Host header):")
 	fmt.Println("  curl -H \"Host: api.example.com\" http://localhost:8080/")
 	fmt.Println("  curl -H \"Host: admin.example.com\" http://localhost:8080/")
-	fmt.Println("==================================================")
+	fmt.Println()
+	fmt.Println("=" + "==========================================================")
+	fmt.Println()
 
 	if err := app.Listen(":8080"); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
 
+// ============================================================================
+// Lifecycle Hooks
+// ============================================================================
+
 func setupLifecycleHooks(app *pkg.Framework) {
-	// Startup hooks
+	// Startup hooks - executed in order during server startup
 	app.RegisterStartupHook(func(ctx context.Context) error {
 		fmt.Println("🚀 Initializing database connections...")
 		return nil
@@ -189,7 +233,7 @@ func setupLifecycleHooks(app *pkg.Framework) {
 		return nil
 	})
 
-	// Shutdown hooks
+	// Shutdown hooks - executed in order during graceful shutdown
 	app.RegisterShutdownHook(func(ctx context.Context) error {
 		fmt.Println("👋 Stopping background workers...")
 		return nil
@@ -206,15 +250,19 @@ func setupLifecycleHooks(app *pkg.Framework) {
 	})
 }
 
+// ============================================================================
+// Global Middleware
+// ============================================================================
+
 func setupGlobalMiddleware(app *pkg.Framework) {
-	// Request ID middleware
+	// Request ID middleware - adds unique ID to each request
 	app.Use(func(ctx pkg.Context, next pkg.HandlerFunc) error {
 		requestID := generateRequestID()
 		ctx.SetHeader("X-Request-ID", requestID)
 		return next(ctx)
 	})
 
-	// Logging middleware
+	// Logging middleware - logs all requests
 	app.Use(func(ctx pkg.Context, next pkg.HandlerFunc) error {
 		start := time.Now()
 		logger := ctx.Logger()
@@ -240,7 +288,7 @@ func setupGlobalMiddleware(app *pkg.Framework) {
 		return err
 	})
 
-	// Metrics middleware
+	// Metrics middleware - records request metrics
 	app.Use(func(ctx pkg.Context, next pkg.HandlerFunc) error {
 		start := time.Now()
 
@@ -256,7 +304,7 @@ func setupGlobalMiddleware(app *pkg.Framework) {
 		return err
 	})
 
-	// Recovery middleware
+	// Recovery middleware - recovers from panics
 	app.Use(func(ctx pkg.Context, next pkg.HandlerFunc) error {
 		defer func() {
 			if r := recover(); r != nil {
@@ -275,15 +323,23 @@ func setupGlobalMiddleware(app *pkg.Framework) {
 	})
 }
 
+// ============================================================================
+// Route Setup
+// ============================================================================
+
 func setupRoutes(app *pkg.Framework) {
 	router := app.Router()
 
-	// Public routes
+	// ========================================
+	// Public Routes
+	// ========================================
 	router.GET("/", homeHandler)
 	router.GET("/health", healthHandler)
 	router.GET("/ready", readinessHandler)
 
-	// Metrics and profiling endpoints
+	// ========================================
+	// Metrics and Profiling Endpoints
+	// ========================================
 	router.GET("/metrics", metricsHandler)
 	router.GET("/debug/pprof", pprofIndexHandler)
 	router.GET("/debug/pprof/cmdline", pprofCmdlineHandler)
@@ -296,17 +352,23 @@ func setupRoutes(app *pkg.Framework) {
 	router.GET("/debug/pprof/block", pprofBlockHandler)
 	router.GET("/debug/pprof/mutex", pprofMutexHandler)
 
-	// API v1 routes
+	// ========================================
+	// API v1 Routes
+	// ========================================
 	v1 := router.Group("/api/v1")
 	v1.GET("/status", apiStatusHandler)
 
-	// Authenticated API routes
+	// ========================================
+	// Authenticated API Routes
+	// ========================================
 	authAPI := router.Group("/api/v1", authenticationMiddleware)
 	authAPI.GET("/profile", profileHandler)
 	authAPI.PUT("/profile", updateProfileHandler)
 	authAPI.POST("/logout", logoutHandler)
 
-	// Admin routes (requires authentication and authorization)
+	// ========================================
+	// Admin Routes (requires authentication and authorization)
+	// ========================================
 	admin := router.Group("/admin", authenticationMiddleware, adminAuthorizationMiddleware)
 	admin.GET("/users", listUsersHandler)
 	admin.POST("/users", createUserHandler)
@@ -314,27 +376,34 @@ func setupRoutes(app *pkg.Framework) {
 	admin.PUT("/users/:id", updateUserHandler)
 	admin.DELETE("/users/:id", deleteUserHandler)
 
-	// Multi-protocol API examples
-
-	// REST API
+	// ========================================
+	// REST API Example
+	// ========================================
 	router.Group("/api/rest").GET("/products", restProductsHandler)
 
-	// GraphQL API (if schema is available)
-	// router.GraphQL("/api/graphql", graphqlSchema)
-
-	// WebSocket
+	// ========================================
+	// WebSocket Example
+	// ========================================
 	router.WebSocket("/ws", websocketHandler)
 
-	// Static files
+	// ========================================
+	// Static Files (uncomment to enable)
+	// ========================================
 	// router.Static("/static", pkg.NewOSFileSystem("./public"))
 
-	// Host-specific routes (multi-tenancy)
+	// ========================================
+	// Multi-Tenancy Routes (host-specific)
+	// ========================================
 	apiHost := router.Host("api.example.com")
 	apiHost.GET("/", apiHomeHandler)
 
 	adminHost := router.Host("admin.example.com")
 	adminHost.GET("/", adminHomeHandler)
 }
+
+// ============================================================================
+// Graceful Shutdown
+// ============================================================================
 
 func setupGracefulShutdown(app *pkg.Framework) {
 	sigChan := make(chan os.Signal, 1)
@@ -344,63 +413,62 @@ func setupGracefulShutdown(app *pkg.Framework) {
 		<-sigChan
 		fmt.Println("\n🛑 Shutdown signal received, gracefully shutting down...")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
 		if err := app.Shutdown(30 * time.Second); err != nil {
 			log.Printf("Error during shutdown: %v", err)
 		}
 
-		<-ctx.Done()
 		os.Exit(0)
 	}()
 }
 
-// Middleware implementations
+// ============================================================================
+// Middleware Implementations
+// ============================================================================
 
+// authenticationMiddleware checks for valid authentication
 func authenticationMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
 	token := ctx.GetHeader("Authorization")
 	if token == "" {
-		ctx.JSON(401, map[string]interface{}{
+		return ctx.JSON(401, map[string]interface{}{
 			"error": "Authentication required",
 		})
-		return nil
 	}
 
-	// Validate token using security manager
+	// In production, validate token using security manager:
 	// user, err := ctx.Security().AuthenticateJWT(token)
 	// if err != nil {
-	//     ctx.JSON(401, map[string]interface{}{"error": "Invalid token"})
-	//     return nil
+	//     return ctx.JSON(401, map[string]interface{}{"error": "Invalid token"})
 	// }
 
 	return next(ctx)
 }
 
+// adminAuthorizationMiddleware checks for admin permissions
 func adminAuthorizationMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
 	user := ctx.User()
 	if user == nil {
-		ctx.JSON(401, map[string]interface{}{
+		return ctx.JSON(401, map[string]interface{}{
 			"error": "Authentication required",
 		})
-		return nil
 	}
 
 	// Check if user has admin role
 	if !ctx.IsAuthorized("admin", "access") {
-		ctx.JSON(403, map[string]interface{}{
+		return ctx.JSON(403, map[string]interface{}{
 			"error": "Insufficient permissions",
 		})
-		return nil
 	}
 
 	return next(ctx)
 }
 
-// Handler implementations
+// ============================================================================
+// Handler Implementations
+// ============================================================================
 
+// homeHandler handles the root endpoint
 func homeHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"message": "Welcome to Rockstar Web Framework! 🎸",
 		"version": "1.0.0",
 		"features": []string{
@@ -411,161 +479,187 @@ func homeHandler(ctx pkg.Context) error {
 			"Internationalization",
 			"Monitoring & profiling",
 			"Forward proxy",
+			"WebSocket support",
+			"Database integration",
+			"Caching",
 		},
 	})
-	return nil
 }
 
+// healthHandler provides basic health check
 func healthHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"status": "healthy",
 		"time":   time.Now().Unix(),
 	})
-	return nil
 }
 
+// readinessHandler checks if all services are ready
 func readinessHandler(ctx pkg.Context) error {
 	// Check if all services are ready
-	dbHealthy := true    // ctx.DB().Ping() == nil
-	cacheHealthy := true // ctx.Cache().Ping() == nil
+	// In production, check actual service health:
+	// dbHealthy := ctx.DB().Ping() == nil
+	// cacheHealthy := ctx.Cache().Ping() == nil
+	dbHealthy := true
+	cacheHealthy := true
 
 	if !dbHealthy || !cacheHealthy {
-		ctx.JSON(503, map[string]interface{}{
+		return ctx.JSON(503, map[string]interface{}{
 			"status": "not ready",
 			"checks": map[string]bool{
 				"database": dbHealthy,
 				"cache":    cacheHealthy,
 			},
 		})
-		return nil
 	}
 
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"status": "ready",
 	})
-	return nil
 }
 
+// apiStatusHandler returns API status
 func apiStatusHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"api_version": "v1",
 		"status":      "operational",
 	})
-	return nil
 }
 
+// profileHandler returns user profile
 func profileHandler(ctx pkg.Context) error {
 	user := ctx.User()
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"user": user,
 	})
-	return nil
 }
 
+// updateProfileHandler updates user profile
 func updateProfileHandler(ctx pkg.Context) error {
-	// Update user profile
-	ctx.JSON(200, map[string]interface{}{
+	// In production, parse request body and update database
+	return ctx.JSON(200, map[string]interface{}{
 		"message": "Profile updated successfully",
 	})
-	return nil
 }
 
+// logoutHandler handles user logout
 func logoutHandler(ctx pkg.Context) error {
-	// Session is managed by the framework
-	// In a real implementation, you would get the session ID from the cookie
-	// and destroy it using the session manager
+	// In production, destroy session:
+	// session, err := ctx.Session().GetSessionFromCookie(ctx)
+	// if err == nil && session != nil {
+	//     ctx.Session().Destroy(ctx, session.ID)
+	// }
 
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"message": "Logged out successfully",
 	})
-	return nil
 }
 
+// listUsersHandler lists all users (admin only)
 func listUsersHandler(ctx pkg.Context) error {
-	// Fetch users from database
-	ctx.JSON(200, map[string]interface{}{
+	// In production, fetch from database:
+	// users, err := ctx.DB().Query("SELECT * FROM users")
+	return ctx.JSON(200, map[string]interface{}{
 		"users": []map[string]interface{}{},
 		"total": 0,
 	})
-	return nil
 }
 
+// createUserHandler creates a new user (admin only)
 func createUserHandler(ctx pkg.Context) error {
-	ctx.JSON(201, map[string]interface{}{
+	// In production, parse body and save to database
+	return ctx.JSON(201, map[string]interface{}{
 		"message": "User created successfully",
 	})
-	return nil
 }
 
+// getUserHandler gets a specific user (admin only)
 func getUserHandler(ctx pkg.Context) error {
 	userID := ctx.Params()["id"]
-	ctx.JSON(200, map[string]interface{}{
+	// In production, fetch from database
+	return ctx.JSON(200, map[string]interface{}{
 		"id": userID,
 	})
-	return nil
 }
 
+// updateUserHandler updates a user (admin only)
 func updateUserHandler(ctx pkg.Context) error {
 	userID := ctx.Params()["id"]
-	ctx.JSON(200, map[string]interface{}{
+	// In production, parse body and update database
+	return ctx.JSON(200, map[string]interface{}{
 		"message": fmt.Sprintf("User %s updated successfully", userID),
 	})
-	return nil
 }
 
+// deleteUserHandler deletes a user (admin only)
 func deleteUserHandler(ctx pkg.Context) error {
 	userID := ctx.Params()["id"]
-	ctx.JSON(200, map[string]interface{}{
+	// In production, delete from database
+	return ctx.JSON(200, map[string]interface{}{
 		"message": fmt.Sprintf("User %s deleted successfully", userID),
 	})
-	return nil
 }
 
+// restProductsHandler demonstrates REST API
 func restProductsHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	// In production, fetch from database with pagination
+	return ctx.JSON(200, map[string]interface{}{
 		"products": []map[string]interface{}{},
 	})
-	return nil
 }
 
+// websocketHandler handles WebSocket connections
 func websocketHandler(ctx pkg.Context, conn pkg.WebSocketConnection) error {
+	fmt.Println("WebSocket connection established")
+
+	// Echo server - reads messages and sends them back
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
+			fmt.Printf("WebSocket read error: %v\n", err)
 			return err
 		}
 
+		fmt.Printf("Received WebSocket message: %s\n", string(data))
+
 		// Echo message back
 		if err := conn.WriteMessage(messageType, data); err != nil {
+			fmt.Printf("WebSocket write error: %v\n", err)
 			return err
 		}
 	}
 }
 
+// apiHomeHandler handles API tenant home
 func apiHomeHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"message": "API Host - api.example.com",
 		"tenant":  ctx.Tenant(),
 	})
-	return nil
 }
 
+// adminHomeHandler handles admin tenant home
 func adminHomeHandler(ctx pkg.Context) error {
-	ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]interface{}{
 		"message": "Admin Host - admin.example.com",
 		"tenant":  ctx.Tenant(),
 	})
-	return nil
 }
 
-// Utility functions
+// ============================================================================
+// Utility Functions
+// ============================================================================
 
+// generateRequestID generates a unique request ID
 func generateRequestID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
-// Metrics and profiling handlers
+// ============================================================================
+// Metrics and Profiling Handlers
+// ============================================================================
 
+// metricsHandler exposes Prometheus-compatible metrics
 func metricsHandler(ctx pkg.Context) error {
 	metrics := ctx.Metrics()
 
@@ -621,6 +715,7 @@ go_memstats_gc_sys_bytes %d
 	return nil
 }
 
+// pprofIndexHandler shows pprof index page
 func pprofIndexHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "text/html; charset=utf-8")
 	ctx.Response().WriteHeader(200)
@@ -630,19 +725,20 @@ func pprofIndexHandler(ctx pkg.Context) error {
 <h1>/debug/pprof/</h1>
 <p>Profiles:</p>
 <ul>
-<li><a href="/debug/pprof/heap">heap</a></li>
-<li><a href="/debug/pprof/goroutine">goroutine</a></li>
-<li><a href="/debug/pprof/threadcreate">threadcreate</a></li>
-<li><a href="/debug/pprof/block">block</a></li>
-<li><a href="/debug/pprof/mutex">mutex</a></li>
-<li><a href="/debug/pprof/profile">profile (30s CPU profile)</a></li>
-<li><a href="/debug/pprof/trace?seconds=5">trace (5s trace)</a></li>
+<li><a href="/debug/pprof/heap">heap</a> - Memory allocation profile</li>
+<li><a href="/debug/pprof/goroutine">goroutine</a> - Goroutine stack traces</li>
+<li><a href="/debug/pprof/threadcreate">threadcreate</a> - Thread creation profile</li>
+<li><a href="/debug/pprof/block">block</a> - Blocking profile</li>
+<li><a href="/debug/pprof/mutex">mutex</a> - Mutex contention profile</li>
+<li><a href="/debug/pprof/profile">profile</a> - 30s CPU profile</li>
+<li><a href="/debug/pprof/trace?seconds=5">trace</a> - 5s execution trace</li>
 </ul>
 </body>
 </html>`))
 	return nil
 }
 
+// pprofCmdlineHandler shows command line
 func pprofCmdlineHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "text/plain; charset=utf-8")
 	ctx.Response().WriteHeader(200)
@@ -651,8 +747,8 @@ func pprofCmdlineHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofProfileHandler generates CPU profile
 func pprofProfileHandler(ctx pkg.Context) error {
-	// CPU profiling for 30 seconds
 	ctx.Response().SetHeader("Content-Type", "application/octet-stream")
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=profile")
 	ctx.Response().WriteHeader(200)
@@ -666,6 +762,7 @@ func pprofProfileHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofSymbolHandler handles symbol lookups
 func pprofSymbolHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "text/plain; charset=utf-8")
 	ctx.Response().WriteHeader(200)
@@ -673,6 +770,7 @@ func pprofSymbolHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofTraceHandler generates execution trace
 func pprofTraceHandler(ctx pkg.Context) error {
 	// Get trace duration from query parameter (default 5 seconds)
 	seconds := 5
@@ -686,19 +784,18 @@ func pprofTraceHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=trace")
 	ctx.Response().WriteHeader(200)
 
-	// Start tracing
 	if err := trace.Start(ctx.Response()); err != nil {
 		ctx.Response().Write([]byte(fmt.Sprintf("Could not start trace: %v", err)))
 		return nil
 	}
 
-	// Trace for the specified duration
 	time.Sleep(time.Duration(seconds) * time.Second)
 	trace.Stop()
 
 	return nil
 }
 
+// pprofHeapHandler generates heap profile
 func pprofHeapHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "application/octet-stream")
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=heap")
@@ -711,6 +808,7 @@ func pprofHeapHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofGoroutineHandler generates goroutine profile
 func pprofGoroutineHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "text/plain; charset=utf-8")
 
@@ -726,6 +824,7 @@ func pprofGoroutineHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofThreadCreateHandler generates thread creation profile
 func pprofThreadCreateHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "application/octet-stream")
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=threadcreate")
@@ -742,6 +841,7 @@ func pprofThreadCreateHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofBlockHandler generates blocking profile
 func pprofBlockHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "application/octet-stream")
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=block")
@@ -758,6 +858,7 @@ func pprofBlockHandler(ctx pkg.Context) error {
 	return nil
 }
 
+// pprofMutexHandler generates mutex contention profile
 func pprofMutexHandler(ctx pkg.Context) error {
 	ctx.Response().SetHeader("Content-Type", "application/octet-stream")
 	ctx.Response().SetHeader("Content-Disposition", "attachment; filename=mutex")

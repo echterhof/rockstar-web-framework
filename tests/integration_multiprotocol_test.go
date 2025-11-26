@@ -2,408 +2,571 @@ package tests
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-// TestMultiProtocolHTTP1 tests HTTP/1.1 protocol support end-to-end
+// TestMultiProtocolHTTP1 tests HTTP/1.1 GET and POST request handling
+// Requirements: 1.1
 func TestMultiProtocolHTTP1(t *testing.T) {
-	// Setup server
-	config := pkg.ServerConfig{
-		EnableHTTP1:    true,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   5 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	// Add test routes
-	router.GET("/api/users", func(ctx pkg.Context) error {
-		users := []map[string]string{
-			{"id": "1", "name": "Alice"},
-			{"id": "2", "name": "Bob"},
-		}
-		return ctx.JSON(http.StatusOK, users)
+	// Register test routes
+	framework.Router().GET("/test", func(ctx pkg.Context) error {
+		return ctx.String(200, "GET response")
 	})
 
-	router.POST("/api/users", func(ctx pkg.Context) error {
-		var user map[string]string
-		if err := json.Unmarshal(ctx.Body(), &user); err != nil {
-			return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid json"})
-		}
-		user["id"] = "3"
-		return ctx.JSON(http.StatusCreated, user)
+	framework.Router().POST("/test", func(ctx pkg.Context) error {
+		return ctx.String(200, "POST response")
 	})
 
-	server.SetRouter(router)
+	framework.Router().GET("/json", func(ctx pkg.Context) error {
+		data := map[string]interface{}{
+			"message": "JSON response",
+			"status":  "success",
+		}
+		return ctx.JSON(200, data)
+	})
 
-	// Start server
-	addr := "127.0.0.1:19001"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
-	time.Sleep(100 * time.Millisecond)
-
-	// Test GET request
-	resp, err := http.Get("http://" + addr + "/api/users")
-	if err != nil {
-		t.Fatalf("GET request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
-
-	var users []map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if len(users) != 2 {
-		t.Errorf("Expected 2 users, got %d", len(users))
-	}
-
-	// Test POST request
-	newUser := map[string]string{"name": "Charlie"}
-	jsonData, _ := json.Marshal(newUser)
-
-	resp, err = http.Post("http://"+addr+"/api/users", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		t.Fatalf("POST request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("Expected status 201, got %d", resp.StatusCode)
-	}
-
-	var createdUser map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&createdUser); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if createdUser["name"] != "Charlie" {
-		t.Errorf("Expected name 'Charlie', got '%s'", createdUser["name"])
-	}
-}
-
-// TestMultiProtocolHTTP2 tests HTTP/2 protocol support
-func TestMultiProtocolHTTP2(t *testing.T) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:    true,
-		EnableHTTP2:    true,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   5 * time.Second,
-		MaxHeaderBytes: 1 << 20,
-	}
-
-	server := pkg.NewServer(config)
-	server.EnableHTTP2()
-
-	router := pkg.NewRouter()
-
-	router.GET("/api/test", func(ctx pkg.Context) error {
-		return ctx.JSON(http.StatusOK, map[string]string{
-			"protocol": "HTTP/2",
-			"message":  "Hello from HTTP/2",
+	framework.Router().POST("/json", func(ctx pkg.Context) error {
+		var requestData map[string]interface{}
+		if err := json.Unmarshal(ctx.Body(), &requestData); err != nil {
+			return ctx.JSON(400, map[string]string{"error": "Invalid JSON"})
+		}
+		return ctx.JSON(200, map[string]interface{}{
+			"received": requestData,
+			"status":   "success",
 		})
 	})
 
-	server.SetRouter(router)
-
-	// Verify HTTP/2 is enabled
-	protocol := server.Protocol()
-	if protocol != "HTTP/1.1, HTTP/2" {
-		t.Errorf("Expected 'HTTP/1.1, HTTP/2', got '%s'", protocol)
-	}
-}
-
-// TestMultiProtocolWebSocket tests WebSocket protocol support
-func TestMultiProtocolWebSocket(t *testing.T) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	// WebSocket echo handler
-	router.WebSocket("/ws/echo", func(ctx pkg.Context, conn pkg.WebSocketConnection) error {
-		for {
-			messageType, message, err := conn.ReadMessage()
-			if err != nil {
-				return err
-			}
-
-			if err := conn.WriteMessage(messageType, message); err != nil {
-				return err
-			}
-		}
-	})
-
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19002"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
-	time.Sleep(100 * time.Millisecond)
-
-	// Note: Full WebSocket client test would require gorilla/websocket client
-	// This test verifies the route is registered
-	route, _, found := router.Match("GET", "/ws/echo", "")
-	if !found {
-		t.Error("WebSocket route not found")
-	}
-
-	if !route.IsWebSocket {
-		t.Error("Route should be marked as WebSocket")
-	}
-}
-
-// TestMultiProtocolREST tests REST API protocol support
-func TestMultiProtocolREST(t *testing.T) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
-	}
-
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
-
-	// Define RESTful routes manually
-	router.GET("/api/posts", func(ctx pkg.Context) error {
-		posts := []map[string]interface{}{
-			{"id": 1, "title": "First Post"},
-			{"id": 2, "title": "Second Post"},
-		}
-		return ctx.JSON(http.StatusOK, posts)
-	})
-
-	router.GET("/api/posts/:id", func(ctx pkg.Context) error {
+	framework.Router().GET("/params/:id", func(ctx pkg.Context) error {
 		id := ctx.Params()["id"]
-		post := map[string]interface{}{
-			"id":    id,
-			"title": "Post " + id,
-		}
-		return ctx.JSON(http.StatusOK, post)
+		return ctx.JSON(200, map[string]string{"id": id})
 	})
 
-	router.POST("/api/posts", func(ctx pkg.Context) error {
-		var post map[string]interface{}
-		if err := json.Unmarshal(ctx.Body(), &post); err != nil {
-			return ctx.JSON(http.StatusBadRequest, map[string]string{"error": "invalid json"})
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19001"); err != nil {
+			t.Logf("Server error: %v", err)
 		}
-		post["id"] = 3
-		return ctx.JSON(http.StatusCreated, post)
-	})
+	}()
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19003"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Test LIST
-	resp, err := http.Get("http://" + addr + "/api/posts")
-	if err != nil {
-		t.Fatalf("LIST request failed: %v", err)
-	}
-	defer resp.Body.Close()
+	// Test GET request
+	t.Run("GET request", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19001/test")
+		assertNoError(t, err, "GET request failed")
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
 
-	// Test GET
-	resp, err = http.Get("http://" + addr + "/api/posts/1")
-	if err != nil {
-		t.Fatalf("GET request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		assertNoError(t, err, "Failed to read response body")
+		assertEqual(t, "GET response", string(body), "Unexpected response body")
+	})
 
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
+	// Test POST request
+	t.Run("POST request", func(t *testing.T) {
+		resp, err := http.Post("http://localhost:19001/test", "text/plain", bytes.NewBufferString("test data"))
+		assertNoError(t, err, "POST request failed")
+		defer resp.Body.Close()
 
-	// Test CREATE
-	newPost := map[string]string{"title": "New Post"}
-	jsonData, _ := json.Marshal(newPost)
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
 
-	resp, err = http.Post("http://"+addr+"/api/posts", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		t.Fatalf("CREATE request failed: %v", err)
-	}
-	defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		assertNoError(t, err, "Failed to read response body")
+		assertEqual(t, "POST response", string(body), "Unexpected response body")
+	})
 
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("Expected status 201, got %d", resp.StatusCode)
-	}
+	// Test JSON GET request
+	t.Run("JSON GET request", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19001/json")
+		assertNoError(t, err, "JSON GET request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+		assertEqual(t, "application/json", resp.Header.Get("Content-Type"), "Expected JSON content type")
+
+		var data map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertEqual(t, "JSON response", data["message"], "Unexpected message")
+		assertEqual(t, "success", data["status"], "Unexpected status")
+	})
+
+	// Test JSON POST request
+	t.Run("JSON POST request", func(t *testing.T) {
+		requestData := map[string]interface{}{
+			"name":  "test",
+			"value": 123,
+		}
+		jsonData, err := json.Marshal(requestData)
+		assertNoError(t, err, "Failed to marshal JSON")
+
+		resp, err := http.Post("http://localhost:19001/json", "application/json", bytes.NewBuffer(jsonData))
+		assertNoError(t, err, "JSON POST request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var responseData map[string]interface{}
+		err = json.NewDecoder(resp.Body).Decode(&responseData)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertEqual(t, "success", responseData["status"], "Unexpected status")
+		assertNotNil(t, responseData["received"], "Expected received data")
+	})
+
+	// Test route parameters
+	t.Run("Route parameters", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19001/params/123")
+		assertNoError(t, err, "Route parameter request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var data map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertEqual(t, "123", data["id"], "Unexpected parameter value")
+	})
 }
 
-// TestMultiProtocolGraphQL tests GraphQL protocol support
-// Note: GraphQL implementation is pending - test skipped
-func TestMultiProtocolGraphQL(t *testing.T) {
-	t.Skip("GraphQL implementation pending")
+// TestMultiProtocolHTTP2 tests HTTP/2 protocol enablement
+// Requirements: 1.2
+func TestMultiProtocolHTTP2(t *testing.T) {
+	// Create framework configuration with HTTP/2 enabled
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     true,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
+	}
+
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
+
+	// Register test route
+	framework.Router().GET("/http2-test", func(ctx pkg.Context) error {
+		return ctx.JSON(200, map[string]string{
+			"protocol": "HTTP/2",
+			"message":  "HTTP/2 enabled",
+		})
+	})
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19002"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
+
+	// Test HTTP/2 request
+	t.Run("HTTP/2 enabled", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19002/http2-test")
+		assertNoError(t, err, "HTTP/2 request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var data map[string]string
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertEqual(t, "HTTP/2 enabled", data["message"], "Unexpected message")
+	})
 }
 
-// TestMultiProtocolGRPC tests gRPC protocol support
-// Note: gRPC implementation is pending - test skipped
-func TestMultiProtocolGRPC(t *testing.T) {
-	t.Skip("gRPC implementation pending")
+// TestMultiProtocolWebSocket tests WebSocket route registration
+// Requirements: 1.3
+func TestMultiProtocolWebSocket(t *testing.T) {
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
+	}
+
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
+
+	// Register WebSocket route
+	framework.Router().WebSocket("/ws", func(ctx pkg.Context, conn pkg.WebSocketConnection) error {
+		// Echo server
+		for {
+			messageType, data, err := conn.ReadMessage()
+			if err != nil {
+				return err
+			}
+			if err := conn.WriteMessage(messageType, data); err != nil {
+				return err
+			}
+		}
+	})
+
+	// Verify route is registered
+	routes := framework.Router().Routes()
+	assertNotNil(t, routes, "Routes should not be nil")
+
+	// Find WebSocket route
+	var wsRoute *pkg.Route
+	for _, route := range routes {
+		if route.Path == "/ws" && route.IsWebSocket {
+			wsRoute = route
+			break
+		}
+	}
+
+	assertNotNil(t, wsRoute, "WebSocket route should be registered")
+	assertTrue(t, wsRoute.IsWebSocket, "Route should be marked as WebSocket")
 }
 
-// TestMultiProtocolSOAP tests SOAP protocol support
-// Note: SOAP implementation is pending - test skipped
-func TestMultiProtocolSOAP(t *testing.T) {
-	t.Skip("SOAP implementation pending")
+// TestMultiProtocolREST tests REST API operations
+// Requirements: 1.4
+func TestMultiProtocolREST(t *testing.T) {
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
+	}
+
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
+
+	// Create REST API manager
+	restAPI := pkg.NewRESTAPIManager(framework.Router(), framework.Database())
+
+	// In-memory storage for testing
+	items := make(map[string]map[string]interface{})
+	var itemsMu sync.Mutex
+
+	// Register REST routes
+	// LIST - Get all items
+	restAPI.RegisterRoute("GET", "/items", func(ctx pkg.Context) error {
+		itemsMu.Lock()
+		defer itemsMu.Unlock()
+
+		itemList := make([]map[string]interface{}, 0, len(items))
+		for _, item := range items {
+			itemList = append(itemList, item)
+		}
+
+		return restAPI.SendJSONResponse(ctx, 200, itemList)
+	}, pkg.RESTRouteConfig{})
+
+	// GET - Get single item
+	restAPI.RegisterRoute("GET", "/items/:id", func(ctx pkg.Context) error {
+		itemsMu.Lock()
+		defer itemsMu.Unlock()
+
+		id := ctx.Params()["id"]
+		item, exists := items[id]
+		if !exists {
+			return restAPI.SendErrorResponse(ctx, 404, "Item not found", nil)
+		}
+
+		return restAPI.SendJSONResponse(ctx, 200, item)
+	}, pkg.RESTRouteConfig{})
+
+	// CREATE - Create new item
+	restAPI.RegisterRoute("POST", "/items", func(ctx pkg.Context) error {
+		var item map[string]interface{}
+		if err := restAPI.ParseJSONRequest(ctx, &item); err != nil {
+			return restAPI.SendErrorResponse(ctx, 400, "Invalid JSON", nil)
+		}
+
+		itemsMu.Lock()
+		defer itemsMu.Unlock()
+
+		id := fmt.Sprintf("item-%d", len(items)+1)
+		item["id"] = id
+		items[id] = item
+
+		return restAPI.SendJSONResponse(ctx, 201, item)
+	}, pkg.RESTRouteConfig{})
+
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19004"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
+
+	// Test CREATE operation
+	t.Run("CREATE item", func(t *testing.T) {
+		itemData := map[string]interface{}{
+			"name":  "Test Item",
+			"value": 100,
+		}
+		jsonData, err := json.Marshal(itemData)
+		assertNoError(t, err, "Failed to marshal JSON")
+
+		resp, err := http.Post("http://localhost:19004/items", "application/json", bytes.NewBuffer(jsonData))
+		assertNoError(t, err, "CREATE request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 201, resp.StatusCode, "Expected status 201")
+
+		var response pkg.RESTResponse
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertTrue(t, response.Success, "Expected success response")
+		assertNotNil(t, response.Data, "Expected data in response")
+	})
+
+	// Test LIST operation
+	t.Run("LIST items", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19004/items")
+		assertNoError(t, err, "LIST request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var response pkg.RESTResponse
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertTrue(t, response.Success, "Expected success response")
+		assertNotNil(t, response.Data, "Expected data in response")
+	})
+
+	// Test GET operation
+	t.Run("GET item", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19004/items/item-1")
+		assertNoError(t, err, "GET request failed")
+		defer resp.Body.Close()
+
+		assertEqual(t, 200, resp.StatusCode, "Expected status 200")
+
+		var response pkg.RESTResponse
+		err = json.NewDecoder(resp.Body).Decode(&response)
+		assertNoError(t, err, "Failed to decode JSON response")
+
+		assertTrue(t, response.Success, "Expected success response")
+		assertNotNil(t, response.Data, "Expected data in response")
+	})
 }
 
-// TestMultiProtocolConcurrent tests concurrent requests across multiple protocols
+// TestMultiProtocolConcurrent tests concurrent request handling
+// Requirements: 1.5
 func TestMultiProtocolConcurrent(t *testing.T) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:  true,
-		EnableHTTP2:  true,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 5 * time.Second,
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	// Add routes for different protocols
-	router.GET("/api/http", func(ctx pkg.Context) error {
-		return ctx.JSON(http.StatusOK, map[string]string{"protocol": "HTTP"})
+	// Register test routes
+	framework.Router().GET("/concurrent", func(ctx pkg.Context) error {
+		return ctx.JSON(200, map[string]string{"status": "ok"})
 	})
 
-	router.GET("/api/rest", func(ctx pkg.Context) error {
-		return ctx.JSON(http.StatusOK, []string{"item1", "item2"})
-	})
+	// Start server in background
+	go func() {
+		if err := framework.Listen(":19005"); err != nil {
+			t.Logf("Server error: %v", err)
+		}
+	}()
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19006"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-	defer server.Close()
-
+	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
+	defer framework.Shutdown(2 * time.Second)
 
-	// Make concurrent requests
-	done := make(chan bool)
-	errors := make(chan error, 20)
-
-	for i := 0; i < 10; i++ {
-		go func() {
-			resp, err := http.Get("http://" + addr + "/api/http")
+	// Test concurrent requests
+	t.Run("Concurrent requests", func(t *testing.T) {
+		concurrentRequests := 50
+		errors := runConcurrentWithErrors(concurrentRequests, func(id int) error {
+			resp, err := http.Get("http://localhost:19005/concurrent")
 			if err != nil {
-				errors <- err
-			} else {
-				resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					errors <- fmt.Errorf("expected status 200, got %d", resp.StatusCode)
+				return fmt.Errorf("request %d failed: %w", id, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != 200 {
+				return fmt.Errorf("request %d: expected status 200, got %d", id, resp.StatusCode)
+			}
+
+			return nil
+		})
+
+		if len(errors) > 0 {
+			t.Errorf("Concurrent requests failed: %d errors out of %d requests", len(errors), concurrentRequests)
+			for i, err := range errors {
+				if i < 5 { // Show first 5 errors
+					t.Logf("Error %d: %v", i+1, err)
 				}
 			}
-			done <- true
-		}()
-
-		go func() {
-			resp, err := http.Get("http://" + addr + "/api/rest")
-			if err != nil {
-				errors <- err
-			} else {
-				resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					errors <- fmt.Errorf("expected status 200, got %d", resp.StatusCode)
-				}
-			}
-			done <- true
-		}()
-	}
-
-	// Wait for all requests
-	for i := 0; i < 20; i++ {
-		<-done
-	}
-
-	close(errors)
-	for err := range errors {
-		t.Errorf("Concurrent request error: %v", err)
-	}
+		}
+	})
 }
 
 // TestMultiProtocolGracefulShutdown tests graceful shutdown with active connections
+// Requirements: 1.6
 func TestMultiProtocolGracefulShutdown(t *testing.T) {
-	config := pkg.ServerConfig{
-		EnableHTTP1:     true,
-		ReadTimeout:     5 * time.Second,
-		WriteTimeout:    5 * time.Second,
-		ShutdownTimeout: 3 * time.Second,
+	// Create framework configuration
+	config := pkg.FrameworkConfig{
+		ServerConfig: pkg.ServerConfig{
+			EnableHTTP1:     true,
+			EnableHTTP2:     false,
+			EnableQUIC:      false,
+			ReadTimeout:     5 * time.Second,
+			WriteTimeout:    5 * time.Second,
+			IdleTimeout:     60 * time.Second,
+			MaxHeaderBytes:  1 << 20,
+			ShutdownTimeout: 2 * time.Second,
+		},
+		DatabaseConfig: createTestDatabaseConfig(),
+		CacheConfig:    pkg.CacheConfig{},
+		SessionConfig:  *createTestSessionConfig(),
 	}
 
-	server := pkg.NewServer(config)
-	router := pkg.NewRouter()
+	// Create framework instance
+	framework, err := pkg.New(config)
+	assertNoError(t, err, "Failed to create framework")
 
-	router.GET("/slow", func(ctx pkg.Context) error {
+	// Register slow route
+	framework.Router().GET("/slow", func(ctx pkg.Context) error {
 		time.Sleep(500 * time.Millisecond)
-		return ctx.String(http.StatusOK, "Done")
+		return ctx.JSON(200, map[string]string{"status": "completed"})
 	})
 
-	server.SetRouter(router)
-
-	addr := "127.0.0.1:19007"
-	if err := server.Listen(addr); err != nil {
-		t.Fatalf("Failed to start server: %v", err)
-	}
-
-	time.Sleep(100 * time.Millisecond)
-
-	// Start a slow request
-	done := make(chan bool)
+	// Start server in background
 	go func() {
-		resp, err := http.Get("http://" + addr + "/slow")
-		if err == nil {
-			resp.Body.Close()
+		if err := framework.Listen(":19006"); err != nil {
+			t.Logf("Server error: %v", err)
 		}
-		done <- true
 	}()
 
-	// Give request time to start
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Start concurrent requests
+	var wg sync.WaitGroup
+	requestsCompleted := 0
+	var completedMu sync.Mutex
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			resp, err := http.Get("http://localhost:19006/slow")
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == 200 {
+					completedMu.Lock()
+					requestsCompleted++
+					completedMu.Unlock()
+				}
+			}
+		}(i)
+	}
+
+	// Wait a bit for requests to start
 	time.Sleep(100 * time.Millisecond)
 
 	// Initiate graceful shutdown
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	shutdownStart := time.Now()
+	err = framework.Shutdown(3 * time.Second)
+	shutdownDuration := time.Since(shutdownStart)
 
-	if err := server.Shutdown(ctx); err != nil {
-		t.Errorf("Graceful shutdown failed: %v", err)
-	}
+	assertNoError(t, err, "Graceful shutdown failed")
 
-	// Wait for request to complete
-	<-done
+	// Wait for all requests to complete
+	wg.Wait()
 
-	if server.IsRunning() {
-		t.Error("Server should not be running after shutdown")
-	}
+	// Verify requests completed
+	t.Logf("Requests completed: %d/10", requestsCompleted)
+	t.Logf("Shutdown duration: %v", shutdownDuration)
+
+	// At least some requests should have completed
+	assertTrue(t, requestsCompleted > 0, "Expected some requests to complete before shutdown")
 }

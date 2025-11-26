@@ -12,6 +12,7 @@ type DatabaseManager interface {
 	Close() error
 	Ping() error
 	Stats() DatabaseStats
+	IsConnected() bool
 
 	// Query execution
 	Query(query string, args ...interface{}) (*sql.Rows, error)
@@ -72,19 +73,57 @@ type Transaction interface {
 
 // DatabaseConfig defines database connection configuration
 type DatabaseConfig struct {
-	Driver          string            `json:"driver"` // mysql, postgres, mssql, sqlite
-	Host            string            `json:"host"`
-	Port            int               `json:"port"`
-	Database        string            `json:"database"`
-	Username        string            `json:"username"`
-	Password        string            `json:"password"`
-	SSLMode         string            `json:"ssl_mode"`
-	Charset         string            `json:"charset"`
-	Timezone        string            `json:"timezone"`
-	ConnMaxLifetime time.Duration     `json:"conn_max_lifetime"`
-	MaxOpenConns    int               `json:"max_open_conns"`
-	MaxIdleConns    int               `json:"max_idle_conns"`
-	Options         map[string]string `json:"options"` // Driver-specific options
+	// Driver specifies the database driver (mysql, postgres, mssql, sqlite).
+	// Required, no default
+	Driver string `json:"driver"`
+
+	// Host is the database server hostname or IP address.
+	// Default: "localhost"
+	Host string `json:"host"`
+
+	// Port is the database server port.
+	// Default: driver-specific (postgres=5432, mysql=3306, mssql=1433, sqlite=0)
+	Port int `json:"port"`
+
+	// Database is the name of the database to connect to.
+	// Required, no default
+	Database string `json:"database"`
+
+	// Username is the database user for authentication.
+	// Required, no default
+	Username string `json:"username"`
+
+	// Password is the database password for authentication.
+	// Required, no default
+	Password string `json:"password"`
+
+	// SSLMode specifies the SSL/TLS mode for the connection.
+	// Default: ""
+	SSLMode string `json:"ssl_mode"`
+
+	// Charset specifies the character set for the connection.
+	// Default: ""
+	Charset string `json:"charset"`
+
+	// Timezone specifies the timezone for the connection.
+	// Default: ""
+	Timezone string `json:"timezone"`
+
+	// ConnMaxLifetime is the maximum amount of time a connection may be reused.
+	// Default: 5 minutes
+	ConnMaxLifetime time.Duration `json:"conn_max_lifetime"`
+
+	// MaxOpenConns is the maximum number of open connections to the database.
+	// Default: 25
+	MaxOpenConns int `json:"max_open_conns"`
+
+	// MaxIdleConns is the maximum number of idle connections in the pool.
+	// Default: 5
+	MaxIdleConns int `json:"max_idle_conns"`
+
+	// Options provides driver-specific connection options.
+	// Default: nil
+	Options map[string]string `json:"options"`
 }
 
 // DatabaseStats provides database connection statistics

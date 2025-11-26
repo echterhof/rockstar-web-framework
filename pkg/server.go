@@ -40,42 +40,96 @@ type Server interface {
 // ServerConfig holds server configuration
 type ServerConfig struct {
 	// Network configuration
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	IdleTimeout    time.Duration
+	// ReadTimeout is the maximum duration for reading the entire request.
+	// Default: 30 seconds
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out writes of the response.
+	// Default: 30 seconds
+	WriteTimeout time.Duration
+
+	// IdleTimeout is the maximum amount of time to wait for the next request when keep-alives are enabled.
+	// Default: 120 seconds
+	IdleTimeout time.Duration
+
+	// MaxHeaderBytes controls the maximum number of bytes the server will read parsing the request header.
+	// Default: 1048576 (1 MB)
 	MaxHeaderBytes int
 
 	// Protocol configuration
+	// EnableHTTP1 enables HTTP/1.1 protocol support.
+	// Default: false
 	EnableHTTP1 bool
+
+	// EnableHTTP2 enables HTTP/2 protocol support.
+	// Default: false
 	EnableHTTP2 bool
-	EnableQUIC  bool
+
+	// EnableQUIC enables QUIC protocol support.
+	// Default: false
+	EnableQUIC bool
 
 	// TLS configuration
+	// TLSConfig provides TLS configuration for secure connections.
+	// Default: nil
 	TLSConfig *tls.Config
 
 	// Connection limits
+	// MaxConnections is the maximum number of concurrent connections.
+	// Default: 10000
 	MaxConnections int
+
+	// MaxRequestSize is the maximum size of a request body in bytes.
+	// Default: 10485760 (10 MB)
 	MaxRequestSize int64
 
 	// Graceful shutdown
+	// ShutdownTimeout is the maximum duration to wait for graceful shutdown.
+	// Default: 30 seconds
 	ShutdownTimeout time.Duration
 
 	// Performance tuning
-	ReadBufferSize  int
+	// ReadBufferSize is the size of the read buffer in bytes.
+	// Default: 4096
+	ReadBufferSize int
+
+	// WriteBufferSize is the size of the write buffer in bytes.
+	// Default: 4096
 	WriteBufferSize int
 
 	// Multi-tenancy
+	// HostConfigs provides host-specific configuration for multi-tenancy.
+	// Default: nil
 	HostConfigs map[string]*HostConfig
 
 	// Monitoring
+	// EnableMetrics enables the metrics endpoint.
+	// Default: false
 	EnableMetrics bool
-	MetricsPath   string
-	EnablePprof   bool
-	PprofPath     string
+
+	// MetricsPath is the path for the metrics endpoint.
+	// Default: ""
+	MetricsPath string
+
+	// EnablePprof enables pprof profiling endpoints.
+	// Default: false
+	EnablePprof bool
+
+	// PprofPath is the path for pprof endpoints.
+	// Default: ""
+	PprofPath string
 
 	// Platform-specific options
+	// ListenerConfig provides platform-specific listener configuration.
+	// Default: nil
 	ListenerConfig *ListenerConfig
-	EnablePrefork  bool
+
+	// EnablePrefork enables prefork mode for multi-process servers.
+	// Default: false
+	EnablePrefork bool
+
+	// PreforkWorkers is the number of worker processes in prefork mode.
+	// Default: 0
 	PreforkWorkers int
 }
 
