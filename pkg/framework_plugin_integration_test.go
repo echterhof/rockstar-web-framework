@@ -109,8 +109,8 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 		// Load the plugin
 		pluginConfig := PluginConfig{
 			Enabled: true,
-			Path:    "/test/plugin",
-			Config:  make(map[string]interface{}),
+
+			Config: make(map[string]interface{}),
 			Permissions: PluginPermissions{
 				AllowRouter: true,
 			},
@@ -130,7 +130,7 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 			pm.mu.Unlock()
 
 			// Initialize the plugin
-			if err := pm.initializePlugin(entry); err != nil {
+			if err := pm.safeInitializePlugin(entry); err != nil {
 				t.Fatalf("Failed to initialize plugin: %v", err)
 			}
 
@@ -191,8 +191,8 @@ func TestFrameworkPluginIntegration(t *testing.T) {
 		// Load the plugin
 		pluginConfig := PluginConfig{
 			Enabled: true,
-			Path:    "/test/plugin",
-			Config:  make(map[string]interface{}),
+
+			Config: make(map[string]interface{}),
 			Permissions: PluginPermissions{
 				AllowRouter: true,
 			},

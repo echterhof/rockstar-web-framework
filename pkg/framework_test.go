@@ -1251,16 +1251,9 @@ func TestLoadPluginWithEnabledPluginSystem(t *testing.T) {
 		t.Fatal("Plugin manager should not be nil when plugins are enabled")
 	}
 
-	// Try to load a plugin with invalid path (should fail but not because system is disabled)
-	err = app.LoadPlugin("./non-existent-plugin.so")
-	if err == nil {
-		t.Fatal("Expected error when loading non-existent plugin")
-	}
-
-	// Error should NOT be about plugin system being disabled
-	if err.Error() == "plugin system is not enabled" {
-		t.Error("Should not get 'plugin system is not enabled' error when plugins are enabled")
-	}
+	// DISABLED: LoadPlugin no longer exists in compile-time plugin system
+	// Plugins are now registered at compile time via init() functions
+	t.Skip("Test disabled - LoadPlugin removed in compile-time plugin system")
 }
 
 // TestLoadPluginWithValidPath tests LoadPlugin with a valid plugin path

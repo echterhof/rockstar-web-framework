@@ -84,6 +84,8 @@ func (m *mockContext) GetHeader(key string) string {
 	return m.headers[key]
 }
 
+func (m *mockContext) Set(key string, value interface{})      {}
+func (m *mockContext) Get(key string) (interface{}, bool)     { return nil, false }
 func (m *mockContext) FormValue(key string) string            { return "" }
 func (m *mockContext) FormFile(key string) (*FormFile, error) { return nil, nil }
 func (m *mockContext) IsAuthenticated() bool {

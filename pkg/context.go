@@ -63,4 +63,8 @@ type Context interface {
 	// Security
 	IsAuthenticated() bool
 	IsAuthorized(resource, action string) bool
+
+	// Context extension (for plugins)
+	Set(key string, value interface{})
+	Get(key string) (interface{}, bool)
 }

@@ -12,6 +12,7 @@ const FrameworkVersion = "1.0.0"
 // DependencyResolver handles plugin dependency resolution
 type DependencyResolver struct {
 	plugins map[string]*PluginWithManifest
+	graph   *DependencyGraph
 }
 
 // PluginWithManifest wraps a plugin with its manifest information
@@ -26,6 +27,7 @@ type PluginWithManifest struct {
 func NewDependencyResolver() *DependencyResolver {
 	return &DependencyResolver{
 		plugins: make(map[string]*PluginWithManifest),
+		graph:   NewDependencyGraph(),
 	}
 }
 
@@ -37,6 +39,19 @@ func (r *DependencyResolver) AddPlugin(name, version string, deps []PluginDepend
 		Dependencies: deps,
 		Manifest:     manifest,
 	}
+
+	// Add to dependency graph
+	r.graph.AddNode(name, version, deps)
+
+	// Add edges for dependencies
+	for _, dep := range deps {
+		r.graph.AddEdge(name, dep.Name)
+	}
+}
+
+// GetDependencyGraph returns the dependency graph
+func (r *DependencyResolver) GetDependencyGraph() *DependencyGraph {
+	return r.graph
 }
 
 // ValidateFrameworkVersion validates that a plugin's framework version requirement is satisfied
@@ -77,171 +92,13 @@ func (r *DependencyResolver) ResolveDependencies() ([]string, error) {
 		}
 	}
 
-	// Check for missing dependencies
-	if err := r.checkMissingDependencies(); err != nil {
+	// Validate all dependencies using the graph
+	if err := r.graph.ValidateDependencies(); err != nil {
 		return nil, err
 	}
 
-	// Check for version incompatibilities
-	if err := r.checkVersionCompatibility(); err != nil {
-		return nil, err
-	}
-
-	// Check for circular dependencies
-	if err := r.checkCircularDependencies(); err != nil {
-		return nil, err
-	}
-
-	// Build dependency graph and determine load order
-	return r.buildLoadOrder()
-}
-
-// checkMissingDependencies checks if all required dependencies are present
-func (r *DependencyResolver) checkMissingDependencies() error {
-	for _, plugin := range r.plugins {
-		for _, dep := range plugin.Dependencies {
-			if dep.Optional {
-				continue
-			}
-			if _, exists := r.plugins[dep.Name]; !exists {
-				return fmt.Errorf("plugin %s: missing required dependency '%s'", plugin.Name, dep.Name)
-			}
-		}
-	}
-	return nil
-}
-
-// checkVersionCompatibility checks if dependency versions are compatible
-func (r *DependencyResolver) checkVersionCompatibility() error {
-	for _, plugin := range r.plugins {
-		for _, dep := range plugin.Dependencies {
-			depPlugin, exists := r.plugins[dep.Name]
-			if !exists {
-				// Skip if optional
-				if dep.Optional {
-					continue
-				}
-				// This should have been caught by checkMissingDependencies
-				continue
-			}
-
-			// Check version constraint
-			satisfied, err := satisfiesVersionConstraint(depPlugin.Version, dep.Version)
-			if err != nil {
-				return fmt.Errorf("plugin %s: invalid version constraint '%s' for dependency '%s': %w",
-					plugin.Name, dep.Version, dep.Name, err)
-			}
-
-			if !satisfied {
-				return fmt.Errorf("plugin %s: dependency '%s' version %s does not satisfy constraint %s",
-					plugin.Name, dep.Name, depPlugin.Version, dep.Version)
-			}
-		}
-	}
-	return nil
-}
-
-// checkCircularDependencies detects circular dependencies
-func (r *DependencyResolver) checkCircularDependencies() error {
-	visited := make(map[string]bool)
-	recStack := make(map[string]bool)
-
-	for name := range r.plugins {
-		if err := r.detectCycle(name, visited, recStack, []string{name}); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// detectCycle performs DFS to detect cycles
-func (r *DependencyResolver) detectCycle(pluginName string, visited, recStack map[string]bool, path []string) error {
-	if recStack[pluginName] {
-		// Found a cycle
-		cycleStart := 0
-		for i, name := range path {
-			if name == pluginName {
-				cycleStart = i
-				break
-			}
-		}
-		cycle := append(path[cycleStart:], pluginName)
-		return fmt.Errorf("circular dependency detected: %s", strings.Join(cycle, " -> "))
-	}
-
-	if visited[pluginName] {
-		return nil
-	}
-
-	visited[pluginName] = true
-	recStack[pluginName] = true
-
-	plugin, exists := r.plugins[pluginName]
-	if exists {
-		for _, dep := range plugin.Dependencies {
-			if _, depExists := r.plugins[dep.Name]; depExists {
-				newPath := append([]string{}, path...)
-				newPath = append(newPath, dep.Name)
-				if err := r.detectCycle(dep.Name, visited, recStack, newPath); err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	recStack[pluginName] = false
-	return nil
-}
-
-// buildLoadOrder builds the correct load order using topological sort
-func (r *DependencyResolver) buildLoadOrder() ([]string, error) {
-	inDegree := make(map[string]int)
-	adjList := make(map[string][]string)
-
-	// Initialize
-	for name := range r.plugins {
-		inDegree[name] = 0
-		adjList[name] = []string{}
-	}
-
-	// Build adjacency list and in-degree count
-	for name, plugin := range r.plugins {
-		for _, dep := range plugin.Dependencies {
-			if _, exists := r.plugins[dep.Name]; exists {
-				adjList[dep.Name] = append(adjList[dep.Name], name)
-				inDegree[name]++
-			}
-		}
-	}
-
-	// Topological sort using Kahn's algorithm
-	var queue []string
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	var result []string
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		result = append(result, current)
-
-		for _, neighbor := range adjList[current] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if len(result) != len(r.plugins) {
-		return nil, fmt.Errorf("failed to resolve dependencies: cycle detected")
-	}
-
-	return result, nil
+	// Perform topological sort to get load order
+	return r.graph.TopologicalSort()
 }
 
 // satisfiesVersionConstraint checks if a version satisfies a constraint

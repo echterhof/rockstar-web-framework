@@ -120,6 +120,8 @@ type PluginContext interface {
 	Database() DatabaseManager
 	Cache() CacheManager
 	Config() ConfigManager
+	FileSystem() FileManager
+	Network() NetworkClient
 
 	// Plugin-specific
 	PluginConfig() map[string]interface{}
@@ -154,6 +156,7 @@ type PluginStorage interface {
 type EventBus interface {
 	Publish(event string, data interface{}) error
 	Subscribe(pluginName, event string, handler EventHandler) error
+	UnregisterAll(pluginName string) error
 	Unsubscribe(pluginName, event string) error
 	ListSubscriptions(event string) []string
 }
@@ -210,4 +213,16 @@ type PermissionChecker interface {
 	GrantPermission(pluginName string, permission string) error
 	RevokePermission(pluginName string, permission string) error
 	GetPermissions(pluginName string) PluginPermissions
+}
+
+// NetworkClient provides network access for plugins
+type NetworkClient interface {
+	// HTTP methods
+	Get(url string, headers map[string]string) ([]byte, error)
+	Post(url string, body []byte, headers map[string]string) ([]byte, error)
+	Put(url string, body []byte, headers map[string]string) ([]byte, error)
+	Delete(url string, headers map[string]string) ([]byte, error)
+
+	// Generic request
+	Do(method, url string, body []byte, headers map[string]string) ([]byte, int, error)
 }

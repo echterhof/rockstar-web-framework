@@ -1,0 +1,93 @@
+# ============================================================================
+# Storage Plugin Manifest
+# ============================================================================
+
+name: storage-plugin
+version: 1.0.0
+description: File storage plugin with local filesystem and S3-compatible backends
+author: Rockstar Framework Team
+
+# Framework compatibility
+framework:
+  version: ">=1.0.0"
+
+# Plugin dependencies
+dependencies: []
+
+# Required permissions
+permissions:
+  database: false
+  cache: false
+  router: true
+  config: true
+  filesystem: true
+  network: true  # For S3 access
+  exec: false
+
+# Configuration schema
+config:
+  storage_type:
+    type: string
+    default: "local"
+    description: Storage backend type (local or s3)
+  local_base_path:
+    type: string
+    default: "./storage"
+    description: Base path for local filesystem storage
+  s3_bucket:
+    type: string
+    description: S3 bucket name
+  s3_region:
+    type: string
+    default: "us-east-1"
+    description: S3 region
+  s3_endpoint:
+    type: string
+    description: S3 endpoint (for S3-compatible services)
+  s3_access_key:
+    type: string
+    description: S3 access key
+  s3_secret_key:
+    type: string
+    description: S3 secret key
+  max_file_size:
+    type: int
+    default: 10485760  # 10MB
+    description: Maximum file size in bytes
+  allowed_extensions:
+    type: array
+    items: string
+    default:
+      - ".jpg"
+      - ".jpeg"
+      - ".png"
+      - ".gif"
+      - ".pdf"
+      - ".txt"
+    description: Allowed file extensions
+  public_url:
+    type: string
+    default: "/storage"
+    description: Public URL prefix for accessing files
+
+# Hook registrations
+hooks: []
+
+# Event subscriptions and publications
+events:
+  publishes:
+    - storage.file_uploaded
+    - storage.file_deleted
+  subscribes: []
+
+# Exported services
+exports:
+  - name: StorageService
+    description: Service for storing and retrieving files
+    methods:
+      - Store(path string, data io.Reader) error
+      - Retrieve(path string) (io.ReadCloser, error)
+      - Delete(path string) error
+      - Exists(path string) (bool, error)
+      - List(prefix string) ([]string, error)
+      - GetURL(path string) (string, error)

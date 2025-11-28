@@ -71,7 +71,8 @@ type PluginConfigEntry struct {
 	Permissions PluginPermissions `json:"permissions" yaml:"permissions" toml:"permissions"`
 }
 
-// LoadPluginsFromConfig loads plugins from a configuration file
+// LoadPluginsFromConfig loads plugin configurations from a configuration file
+// For compile-time plugins, this sets the configuration for each plugin
 func (m *pluginManagerImpl) LoadPluginsFromConfig(configPath string) error {
 	// Read the configuration file
 	data, err := os.ReadFile(configPath)
@@ -115,32 +116,11 @@ func (m *pluginManagerImpl) LoadPluginsFromConfig(configPath string) error {
 		return nil
 	}
 
-	// Load plugins in the order specified in the configuration
+	// Set plugin configurations for compile-time plugins
 	for _, pluginEntry := range pluginsConfig.Plugins {
-		// Skip disabled plugins
-		if !pluginEntry.Enabled {
-			if m.logger != nil {
-				m.logger.Info(fmt.Sprintf("Skipping disabled plugin: %s", pluginEntry.Name))
-			}
-			continue
-		}
-
-		// Resolve plugin path
-		pluginPath := pluginEntry.Path
-		if !filepath.IsAbs(pluginPath) {
-			// If path is relative, resolve it relative to the config directory or plugins directory
-			if pluginsConfig.Directory != "" {
-				pluginPath = filepath.Join(pluginsConfig.Directory, pluginPath)
-			} else {
-				configDir := filepath.Dir(configPath)
-				pluginPath = filepath.Join(configDir, pluginPath)
-			}
-		}
-
 		// Create plugin config
 		config := PluginConfig{
 			Enabled:     pluginEntry.Enabled,
-			Path:        pluginPath,
 			Config:      pluginEntry.Config,
 			Permissions: pluginEntry.Permissions,
 			Priority:    pluginEntry.Priority,
@@ -149,17 +129,15 @@ func (m *pluginManagerImpl) LoadPluginsFromConfig(configPath string) error {
 		// Apply defaults to plugin config
 		config.ApplyDefaults()
 
-		// Load the plugin
-		if err := m.LoadPlugin(pluginPath, config); err != nil {
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Failed to load plugin %s from %s: %v", pluginEntry.Name, pluginPath, err))
-			}
-			// Continue loading other plugins
-			continue
-		}
+		// Set the configuration for this plugin
+		m.SetPluginConfig(pluginEntry.Name, config)
 
 		if m.logger != nil {
-			m.logger.Info(fmt.Sprintf("Loaded plugin %s from configuration", pluginEntry.Name))
+			if config.Enabled {
+				m.logger.Info(fmt.Sprintf("Configured plugin %s from configuration", pluginEntry.Name))
+			} else {
+				m.logger.Info(fmt.Sprintf("Plugin %s is disabled in configuration", pluginEntry.Name))
+			}
 		}
 	}
 

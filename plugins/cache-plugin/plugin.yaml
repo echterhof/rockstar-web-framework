@@ -1,0 +1,84 @@
+# ============================================================================
+# Cache Plugin Manifest
+# ============================================================================
+
+name: cache-plugin
+version: 1.0.0
+description: HTTP response caching plugin with intelligent cache key generation
+author: Rockstar Framework Team
+
+# Framework compatibility
+framework:
+  version: ">=1.0.0"
+
+# Plugin dependencies
+dependencies: []
+
+# Required permissions
+permissions:
+  database: false
+  cache: true
+  router: true
+  config: true
+  filesystem: false
+  network: false
+  exec: false
+
+# Configuration schema
+config:
+  enabled:
+    type: bool
+    default: true
+    description: Enable caching
+  cache_duration:
+    type: duration
+    default: "10m"
+    description: Default cache duration
+  cache_methods:
+    type: array
+    items: string
+    default:
+      - "GET"
+      - "HEAD"
+    description: HTTP methods to cache
+  include_query_params:
+    type: bool
+    default: true
+    description: Include query parameters in cache key
+  custom_key_prefix:
+    type: string
+    default: "api_cache"
+    description: Custom prefix for cache keys
+  excluded_paths:
+    type: array
+    items: string
+    default:
+      - "/admin"
+      - "/api/auth"
+    description: Paths to exclude from caching
+  invalidate_on_mutation:
+    type: bool
+    default: true
+    description: Invalidate cache on POST/PUT/DELETE requests
+  compression_enabled:
+    type: bool
+    default: true
+    description: Enable response compression in cache
+
+# Hook registrations
+hooks:
+  - type: pre_request
+    priority: 150
+  - type: post_request
+    priority: 150
+
+# Event subscriptions and publications
+events:
+  publishes: []
+  subscribes:
+    - cache.invalidate
+
+# Exported services
+exports:
+  - name: CacheService
+    description: Provides cache statistics (hits, misses, hit rate)

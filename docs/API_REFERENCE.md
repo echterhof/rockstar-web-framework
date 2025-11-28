@@ -658,65 +658,62 @@ message := i18n.Translate("welcome_message", userName)
 
 ## Plugin System
 
-The plugin system enables extending framework functionality through dynamically loadable modules.
+The plugin system enables extending framework functionality through compile-time plugins that are compiled directly into the application binary.
 
 ### PluginManager Interface
 
 The main interface for managing plugins.
 
-#### LoadPlugin()
+#### DiscoverPlugins()
 
 ```go
-func (pm PluginManager) LoadPlugin(path string, config PluginConfig) error
+func (pm PluginManager) DiscoverPlugins() error
 ```
 
-Loads a plugin from the specified path.
-
-**Parameters:**
-- `path`: Path to the plugin binary or directory
-- `config`: Plugin configuration
+Discovers all plugins registered via `init()` functions.
 
 **Example:**
 ```go
-err := pluginManager.LoadPlugin("./plugins/auth-plugin", pkg.PluginConfig{
-    Enabled: true,
-    Config: map[string]interface{}{
-        "jwt_secret": "secret",
-    },
-    Permissions: pkg.PluginPermissions{
-        AllowDatabase: true,
-        AllowCache:    true,
-    },
-})
+err := pluginManager.DiscoverPlugins()
 ```
 
-#### LoadPluginsFromConfig()
+#### InitializeAll()
 
 ```go
-func (pm PluginManager) LoadPluginsFromConfig(configPath string) error
+func (pm PluginManager) InitializeAll() error
 ```
 
-Loads multiple plugins from a configuration file (YAML, JSON, or TOML).
-
-#### UnloadPlugin()
-
-```go
-func (pm PluginManager) UnloadPlugin(name string) error
-```
-
-Unloads a plugin by name.
-
-#### ReloadPlugin()
-
-```go
-func (pm PluginManager) ReloadPlugin(name string) error
-```
-
-Hot reloads a plugin without restarting the server.
+Initializes all discovered plugins in dependency order.
 
 **Example:**
 ```go
-err := pluginManager.ReloadPlugin("auth-plugin")
+err := pluginManager.InitializeAll()
+```
+
+#### StartAll()
+
+```go
+func (pm PluginManager) StartAll() error
+```
+
+Starts all initialized plugins.
+
+**Example:**
+```go
+err := pluginManager.StartAll()
+```
+
+#### StopAll()
+
+```go
+func (pm PluginManager) StopAll() error
+```
+
+Stops all running plugins in reverse dependency order.
+
+**Example:**
+```go
+err := pluginManager.StopAll()
 ```
 
 #### GetPlugin()
@@ -725,7 +722,12 @@ err := pluginManager.ReloadPlugin("auth-plugin")
 func (pm PluginManager) GetPlugin(name string) (Plugin, error)
 ```
 
-Retrieves a loaded plugin by name.
+Retrieves a plugin by name.
+
+**Example:**
+```go
+plugin, err := pluginManager.GetPlugin("auth-plugin")
+```
 
 #### ListPlugins()
 
@@ -733,7 +735,7 @@ Retrieves a loaded plugin by name.
 func (pm PluginManager) ListPlugins() []PluginInfo
 ```
 
-Returns information about all loaded plugins.
+Returns information about all plugins.
 
 **Example:**
 ```go
@@ -749,7 +751,14 @@ for _, info := range plugins {
 func (pm PluginManager) IsLoaded(name string) bool
 ```
 
-Checks if a plugin is currently loaded.
+Checks if a plugin is loaded.
+
+**Example:**
+```go
+if pluginManager.IsLoaded("auth-plugin") {
+    fmt.Println("Auth plugin is loaded")
+}
+```
 
 #### GetPluginHealth()
 
@@ -772,6 +781,35 @@ func (pm PluginManager) GetAllHealth() map[string]PluginHealth
 ```
 
 Returns health information for all plugins.
+
+#### ResolveDependencies()
+
+```go
+func (pm PluginManager) ResolveDependencies() error
+```
+
+Resolves plugin dependencies and determines load order.
+
+**Example:**
+```go
+err := pluginManager.ResolveDependencies()
+```
+
+#### GetDependencyGraph()
+
+```go
+func (pm PluginManager) GetDependencyGraph() map[string][]string
+```
+
+Returns the plugin dependency graph.
+
+**Example:**
+```go
+graph := pluginManager.GetDependencyGraph()
+for plugin, deps := range graph {
+    fmt.Printf("%s depends on: %v\n", plugin, deps)
+}
+```
 
 ### Plugin Interface
 
@@ -864,6 +902,22 @@ func (p *MyPlugin) Initialize(ctx PluginContext) error {
 }
 ```
 
+### Plugin Registration
+
+Plugins register themselves at compile time via `init()` functions:
+
+```go
+package myplugin
+
+import "github.com/echterhof/rockstar-web-framework/pkg"
+
+func init() {
+    pkg.RegisterPlugin("my-plugin", func() pkg.Plugin {
+        return &MyPlugin{}
+    })
+}
+```
+
 ### Plugin Configuration
 
 Plugins can be configured via YAML, JSON, or TOML:
@@ -871,13 +925,10 @@ Plugins can be configured via YAML, JSON, or TOML:
 ```yaml
 plugins:
   enabled: true
-  directory: ./plugins
   
   plugins:
     - name: auth-plugin
       enabled: true
-      path: ./plugins/auth-plugin
-      priority: 100
       config:
         jwt_secret: "secret"
         token_expiry: 3600
@@ -885,13 +936,11 @@ plugins:
         database: true
         cache: true
         router: true
-        filesystem: false
-        network: false
 ```
 
 ### Plugin Manifest
 
-Each plugin should include a manifest file (plugin.yaml or plugin.json):
+Each plugin includes a manifest file (plugin.yaml):
 
 ```yaml
 name: auth-plugin
@@ -900,7 +949,7 @@ description: Authentication plugin with JWT support
 author: Your Name <email@example.com>
 
 framework:
-  version: ">=1.0.0,<2.0.0"
+  version: ">=1.0.0"
 
 dependencies:
   - name: cache-plugin
@@ -911,8 +960,6 @@ permissions:
   database: true
   cache: true
   router: true
-  filesystem: false
-  network: false
 
 config:
   jwt_secret:
@@ -923,6 +970,32 @@ config:
     type: int
     default: 3600
     description: Token expiration in seconds
+```
+
+### Main Application Integration
+
+Import plugins in your main application:
+
+```go
+// cmd/rockstar/main.go
+package main
+
+import (
+    "github.com/echterhof/rockstar-web-framework/pkg"
+    
+    // Import plugins to trigger init()
+    _ "github.com/echterhof/rockstar-web-framework/plugins/auth-plugin"
+    _ "github.com/echterhof/rockstar-web-framework/plugins/cache-plugin"
+)
+
+func main() {
+    framework, err := pkg.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    framework.Start()
+}
 ```
 
 For detailed plugin development information, see:

@@ -539,3 +539,5 @@ func (m *mockMiddlewareContext) FormValue(key string) string                 { r
 func (m *mockMiddlewareContext) FormFile(key string) (*FormFile, error)      { return nil, nil }
 func (m *mockMiddlewareContext) IsAuthenticated() bool                       { return false }
 func (m *mockMiddlewareContext) IsAuthorized(resource, action string) bool   { return false }
+func (m *mockMiddlewareContext) Set(key string, value interface{})           {}
+func (m *mockMiddlewareContext) Get(key string) (interface{}, bool)          { return nil, false }

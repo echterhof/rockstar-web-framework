@@ -169,15 +169,14 @@ func New(config FrameworkConfig) (*Framework, error) {
 		// Create plugin system components
 		logger := NewLogger(nil)
 		pluginRegistry := NewPluginRegistry()
-		pluginLoader := NewPluginLoader("./plugins", logger)
 		hookSystem := NewHookSystem(logger, metricsMgr)
 		eventBus := NewEventBus(logger)
 		permissionChecker := NewPermissionChecker(logger)
 
 		// Create plugin manager
+		// TODO: Add FileManager and NetworkClient to framework
 		pluginMgr := NewPluginManager(
 			pluginRegistry,
-			pluginLoader,
 			hookSystem,
 			eventBus,
 			permissionChecker,
@@ -187,19 +186,19 @@ func New(config FrameworkConfig) (*Framework, error) {
 			dbMgr,
 			f.cache,
 			f.config,
+			nil,                // fileSystem - TODO: implement
+			NewNetworkClient(), // network client
 		)
 		f.pluginManager = pluginMgr
 
-		// Load plugins from configuration if specified
-		if config.PluginConfigPath != "" {
-			if err := pluginMgr.LoadPluginsFromConfig(config.PluginConfigPath); err != nil {
-				return nil, fmt.Errorf("failed to load plugins from config: %w", err)
-			}
+		// Discover and initialize plugins
+		if err := pluginMgr.DiscoverPlugins(); err != nil {
+			return nil, fmt.Errorf("failed to discover plugins: %w", err)
+		}
 
-			// Resolve dependencies and initialize plugins
-			if err := pluginMgr.InitializeAll(); err != nil {
-				return nil, fmt.Errorf("failed to initialize plugins: %w", err)
-			}
+		// Resolve dependencies and initialize plugins
+		if err := pluginMgr.InitializeAll(); err != nil {
+			return nil, fmt.Errorf("failed to initialize plugins: %w", err)
 		}
 	}
 
@@ -498,21 +497,18 @@ func (f *Framework) PluginManager() PluginManager {
 	return f.pluginManager
 }
 
-// LoadPlugin loads a plugin from the specified path
+// LoadPlugin is deprecated for compile-time plugins
+// Plugins are now discovered automatically at startup
+// This method is kept for backward compatibility but does nothing
 func (f *Framework) LoadPlugin(path string) error {
 	// Check if plugin system is enabled
 	if f.pluginManager == nil {
 		return fmt.Errorf("plugin system is not enabled")
 	}
 
-	// Create a default plugin config
-	config := PluginConfig{
-		Path:    path,
-		Enabled: true,
-	}
-
-	// Delegate to PluginManager
-	return f.pluginManager.LoadPlugin(path, config)
+	// With compile-time plugins, this is a no-op
+	// Plugins are registered via init() functions
+	return nil
 }
 
 // startupHookContext is a minimal context implementation for startup hooks
@@ -650,6 +646,14 @@ func (c *startupHookContext) IsAuthorized(resource, action string) bool {
 	return false
 }
 
+func (c *startupHookContext) Set(key string, value interface{}) {
+	// No-op for startup hooks
+}
+
+func (c *startupHookContext) Get(key string) (interface{}, bool) {
+	return nil, false
+}
+
 // shutdownHookContext is a minimal context implementation for shutdown hooks
 type shutdownHookContext struct {
 	ctx context.Context
@@ -783,4 +787,12 @@ func (c *shutdownHookContext) IsAuthenticated() bool {
 
 func (c *shutdownHookContext) IsAuthorized(resource, action string) bool {
 	return false
+}
+
+func (c *shutdownHookContext) Set(key string, value interface{}) {
+	// No-op for shutdown hooks
+}
+
+func (c *shutdownHookContext) Get(key string) (interface{}, bool) {
+	return nil, false
 }

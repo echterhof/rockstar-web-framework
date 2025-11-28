@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/echterhof/rockstar-web-framework/pkg"
+	// Plugin imports are automatically generated in plugin_imports.go
+	// Run 'make discover-plugins' to regenerate plugin imports
 )
 
 var (
@@ -32,6 +34,7 @@ var (
 	enablePprof   = flag.Bool("pprof", false, "Enable pprof debugging endpoints")
 	logLevel      = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	version       = flag.Bool("version", false, "Print version and exit")
+	listPlugins   = flag.Bool("list-plugins", false, "List all registered compile-time plugins and exit")
 )
 
 const appVersion = "1.0.0"
@@ -42,6 +45,12 @@ func main() {
 	// Handle version flag
 	if *version {
 		fmt.Printf("Rockstar Web Framework v%s\n", appVersion)
+		os.Exit(0)
+	}
+
+	// Handle list-plugins flag
+	if *listPlugins {
+		listRegisteredPlugins()
 		os.Exit(0)
 	}
 
@@ -80,6 +89,53 @@ func main() {
 	log.Printf("Starting server on %s", *addr)
 	if err := startServer(app); err != nil {
 		log.Fatalf("Server error: %v", err)
+	}
+}
+
+func listRegisteredPlugins() {
+	fmt.Println("Registered Compile-Time Plugins:")
+	fmt.Println("================================")
+
+	plugins := pkg.GetRegisteredPlugins()
+
+	if len(plugins) == 0 {
+		fmt.Println("No plugins registered.")
+		fmt.Println("\nTo add plugins:")
+		fmt.Println("  1. Place plugin packages in the plugins/ directory")
+		fmt.Println("  2. Import them in cmd/rockstar/main.go")
+		fmt.Println("  3. Rebuild the application with 'make build'")
+		return
+	}
+
+	fmt.Printf("\nTotal plugins: %d\n\n", len(plugins))
+
+	for i, name := range plugins {
+		fmt.Printf("%d. %s\n", i+1, name)
+
+		// Try to create plugin instance to get more details
+		plugin, err := pkg.CreatePlugin(name)
+		if err != nil {
+			fmt.Printf("   Error: %v\n", err)
+			continue
+		}
+
+		fmt.Printf("   Version:     %s\n", plugin.Version())
+		fmt.Printf("   Description: %s\n", plugin.Description())
+		fmt.Printf("   Author:      %s\n", plugin.Author())
+
+		deps := plugin.Dependencies()
+		if len(deps) > 0 {
+			fmt.Printf("   Dependencies:\n")
+			for _, dep := range deps {
+				optional := ""
+				if dep.Optional {
+					optional = " (optional)"
+				}
+				fmt.Printf("     - %s %s%s\n", dep.Name, dep.Version, optional)
+			}
+		}
+
+		fmt.Println()
 	}
 }
 
@@ -212,43 +268,31 @@ func createConfig() pkg.FrameworkConfig {
 }
 
 func loadPlugins(app *pkg.Framework) error {
-	// Check if plugin directory exists
-	if _, err := os.Stat(*pluginDir); os.IsNotExist(err) {
-		log.Printf("Plugin directory not found: %s (skipping plugin loading)", *pluginDir)
+	// With compile-time plugins, they are already registered via init()
+	// This function now just reports what plugins are available
+
+	plugins := pkg.GetRegisteredPlugins()
+
+	if len(plugins) == 0 {
+		log.Println("No compile-time plugins registered")
+		log.Println("To add plugins, place them in plugins/ directory and rebuild")
 		return nil
 	}
 
-	entries, err := os.ReadDir(*pluginDir)
-	if err != nil {
-		return fmt.Errorf("failed to read plugin directory: %w", err)
-	}
-
-	pluginCount := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !isPluginFile(entry.Name()) {
+	log.Printf("Registered compile-time plugins: %d", len(plugins))
+	for _, name := range plugins {
+		plugin, err := pkg.CreatePlugin(name)
+		if err != nil {
+			log.Printf("  ✗ %s (error: %v)", name, err)
 			continue
 		}
-
-		pluginPath := fmt.Sprintf("%s/%s", *pluginDir, entry.Name())
-		if err := app.LoadPlugin(pluginPath); err != nil {
-			log.Printf("Warning: Failed to load plugin %s: %v", entry.Name(), err)
-			continue
-		}
-
-		log.Printf("✓ Loaded plugin: %s", entry.Name())
-		pluginCount++
+		log.Printf("  ✓ %s v%s", name, plugin.Version())
 	}
 
-	if pluginCount > 0 {
-		log.Printf("Loaded %d plugin(s)", pluginCount)
-	}
+	// The framework's plugin manager will handle initialization
+	// based on configuration
 
 	return nil
-}
-
-func isPluginFile(filename string) bool {
-	// Check for .so (Linux/Unix) or .dll (Windows) extensions
-	return len(filename) > 3 && (filename[len(filename)-3:] == ".so" || filename[len(filename)-4:] == ".dll")
 }
 
 func setupHooks(app *pkg.Framework) {

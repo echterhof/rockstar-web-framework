@@ -271,6 +271,8 @@ func (m *mockSecurityContext) Redirect(statusCode int, url string) error   { ret
 func (m *mockSecurityContext) SetCookie(cookie *Cookie) error              { return nil }
 func (m *mockSecurityContext) GetCookie(name string) (*Cookie, error)      { return nil, nil }
 func (m *mockSecurityContext) GetHeader(key string) string                 { return "" }
+func (m *mockSecurityContext) Set(key string, value interface{})           {}
+func (m *mockSecurityContext) Get(key string) (interface{}, bool)          { return nil, false }
 func (m *mockSecurityContext) FormValue(key string) string                 { return "" }
 func (m *mockSecurityContext) FormFile(key string) (*FormFile, error)      { return nil, nil }
 func (m *mockSecurityContext) IsAuthenticated() bool                       { return false }

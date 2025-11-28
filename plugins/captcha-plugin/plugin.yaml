@@ -1,0 +1,85 @@
+# ============================================================================
+# CAPTCHA Plugin Manifest
+# ============================================================================
+
+name: captcha-plugin
+version: 1.0.0
+description: CAPTCHA generation and validation plugin for bot protection
+author: Rockstar Framework Team
+
+# Framework compatibility
+framework:
+  version: ">=1.0.0"
+
+# Plugin dependencies
+dependencies: []
+
+# Required permissions
+permissions:
+  database: false
+  cache: false
+  router: true
+  config: true
+  filesystem: false
+  network: false
+  exec: false
+
+# Configuration schema
+config:
+  enabled:
+    type: bool
+    default: true
+    description: Enable CAPTCHA protection
+  captcha_length:
+    type: int
+    default: 6
+    description: Length of CAPTCHA challenge
+  captcha_expiry:
+    type: duration
+    default: "5m"
+    description: CAPTCHA expiration time
+  protected_paths:
+    type: array
+    items: string
+    default:
+      - "/api/login"
+      - "/api/register"
+      - "/api/contact"
+    description: Paths that require CAPTCHA validation
+  protected_methods:
+    type: array
+    items: string
+    default:
+      - "POST"
+    description: HTTP methods that require CAPTCHA validation
+  case_sensitive:
+    type: bool
+    default: false
+    description: Whether CAPTCHA validation is case-sensitive
+  allowed_characters:
+    type: string
+    default: "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    description: Characters allowed in CAPTCHA (excluding ambiguous ones)
+  max_attempts:
+    type: int
+    default: 3
+    description: Maximum validation attempts per CAPTCHA
+
+# Hook registrations
+hooks: []
+
+# Event subscriptions and publications
+events:
+  publishes:
+    - captcha.generated
+    - captcha.validated
+    - captcha.failed
+  subscribes: []
+
+# Exported services
+exports:
+  - name: CaptchaService
+    description: Service for generating and validating CAPTCHAs
+    methods:
+      - GenerateCaptcha() (id string, challenge string, err error)
+      - ValidateCaptcha(id string, answer string) (bool, error)

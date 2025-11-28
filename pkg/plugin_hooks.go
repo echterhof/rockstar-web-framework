@@ -116,6 +116,35 @@ func (h *hookSystemImpl) UnregisterHook(pluginName string, hookType HookType) er
 	return nil
 }
 
+// UnregisterAll removes all hooks for a plugin
+func (h *hookSystemImpl) UnregisterAll(pluginName string) error {
+	if pluginName == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	removedCount := 0
+	for hookType, hooks := range h.hooks {
+		filtered := make([]hookEntry, 0, len(hooks))
+		for _, entry := range hooks {
+			if entry.pluginName != pluginName {
+				filtered = append(filtered, entry)
+			} else {
+				removedCount++
+			}
+		}
+		h.hooks[hookType] = filtered
+	}
+
+	if h.logger != nil {
+		h.logger.Info(fmt.Sprintf("Unregistered %d hooks for plugin %s", removedCount, pluginName))
+	}
+
+	return nil
+}
+
 // ExecuteHooks executes all hooks of a given type
 func (h *hookSystemImpl) ExecuteHooks(hookType HookType, ctx Context) error {
 	if !isValidHookType(hookType) {

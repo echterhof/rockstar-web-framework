@@ -10,12 +10,14 @@ type pluginContextImpl struct {
 	pluginName string
 
 	// Framework services
-	router   RouterEngine
-	logger   Logger
-	metrics  MetricsCollector
-	database DatabaseManager
-	cache    CacheManager
-	config   ConfigManager
+	router     RouterEngine
+	logger     Logger
+	metrics    MetricsCollector
+	database   DatabaseManager
+	cache      CacheManager
+	config     ConfigManager
+	fileSystem FileManager
+	network    NetworkClient
 
 	// Plugin-specific data
 	pluginConfig  map[string]interface{}
@@ -41,6 +43,8 @@ func NewPluginContext(
 	database DatabaseManager,
 	cache CacheManager,
 	config ConfigManager,
+	fileSystem FileManager,
+	network NetworkClient,
 	pluginConfig map[string]interface{},
 	permissions PluginPermissions,
 	hookSystem HookSystem,
@@ -59,6 +63,8 @@ func NewPluginContext(
 		database:           database,
 		cache:              cache,
 		config:             config,
+		fileSystem:         fileSystem,
+		network:            network,
 		pluginConfig:       pluginConfig,
 		pluginStorage:      storage,
 		hookSystem:         hookSystem,
@@ -74,8 +80,10 @@ func NewPluginContext(
 func (c *pluginContextImpl) Router() RouterEngine {
 	if c.permissionChecker != nil {
 		if err := c.permissionChecker.CheckPermission(c.pluginName, "router"); err != nil {
-			c.logger.Error(fmt.Sprintf("Plugin %s denied router access: %v", c.pluginName, err))
-			return nil
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted router access without permission", c.pluginName))
+			}
+			return newPermissionDeniedRouterEngine(c.pluginName, c.logger)
 		}
 	}
 	return c.router
@@ -95,8 +103,10 @@ func (c *pluginContextImpl) Metrics() MetricsCollector {
 func (c *pluginContextImpl) Database() DatabaseManager {
 	if c.permissionChecker != nil {
 		if err := c.permissionChecker.CheckPermission(c.pluginName, "database"); err != nil {
-			c.logger.Error(fmt.Sprintf("Plugin %s denied database access: %v", c.pluginName, err))
-			return nil
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted database access without permission", c.pluginName))
+			}
+			return newPermissionDeniedDatabaseManager(c.pluginName, c.logger)
 		}
 	}
 	return c.database
@@ -106,8 +116,10 @@ func (c *pluginContextImpl) Database() DatabaseManager {
 func (c *pluginContextImpl) Cache() CacheManager {
 	if c.permissionChecker != nil {
 		if err := c.permissionChecker.CheckPermission(c.pluginName, "cache"); err != nil {
-			c.logger.Error(fmt.Sprintf("Plugin %s denied cache access: %v", c.pluginName, err))
-			return nil
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted cache access without permission", c.pluginName))
+			}
+			return newPermissionDeniedCacheManager(c.pluginName, c.logger)
 		}
 	}
 	return c.cache
@@ -117,11 +129,39 @@ func (c *pluginContextImpl) Cache() CacheManager {
 func (c *pluginContextImpl) Config() ConfigManager {
 	if c.permissionChecker != nil {
 		if err := c.permissionChecker.CheckPermission(c.pluginName, "config"); err != nil {
-			c.logger.Error(fmt.Sprintf("Plugin %s denied config access: %v", c.pluginName, err))
-			return nil
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted config access without permission", c.pluginName))
+			}
+			return newPermissionDeniedConfigManager(c.pluginName, c.logger)
 		}
 	}
 	return c.config
+}
+
+// FileSystem returns the framework's file manager (permission-controlled)
+func (c *pluginContextImpl) FileSystem() FileManager {
+	if c.permissionChecker != nil {
+		if err := c.permissionChecker.CheckPermission(c.pluginName, "filesystem"); err != nil {
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted filesystem access without permission", c.pluginName))
+			}
+			return newPermissionDeniedFileManager(c.pluginName, c.logger)
+		}
+	}
+	return c.fileSystem
+}
+
+// Network returns the network client (permission-controlled)
+func (c *pluginContextImpl) Network() NetworkClient {
+	if c.permissionChecker != nil {
+		if err := c.permissionChecker.CheckPermission(c.pluginName, "network"); err != nil {
+			if c.logger != nil {
+				c.logger.Error(fmt.Sprintf("Security violation: plugin %s attempted network access without permission", c.pluginName))
+			}
+			return newPermissionDeniedNetworkClient(c.pluginName, c.logger)
+		}
+	}
+	return c.network
 }
 
 // PluginConfig returns the plugin-specific configuration
@@ -206,13 +246,22 @@ type ServiceRegistry interface {
 	Export(pluginName, serviceName string, service interface{}) error
 	Import(pluginName, serviceName string) (interface{}, error)
 	List(pluginName string) []string
+	ListAll() map[string][]string
 	Unregister(pluginName, serviceName string) error
+	UnregisterAll(pluginName string) error
+	SetPluginStatusChecker(checker PluginStatusChecker)
+}
+
+// PluginStatusChecker checks if a plugin is loaded and running
+type PluginStatusChecker interface {
+	IsPluginRunning(pluginName string) bool
 }
 
 // serviceRegistryImpl is the default implementation of ServiceRegistry
 type serviceRegistryImpl struct {
-	mu       sync.RWMutex
-	services map[string]map[string]interface{} // pluginName -> serviceName -> service
+	mu            sync.RWMutex
+	services      map[string]map[string]interface{} // pluginName -> serviceName -> service
+	statusChecker PluginStatusChecker
 }
 
 // NewServiceRegistry creates a new service registry
@@ -220,6 +269,13 @@ func NewServiceRegistry() ServiceRegistry {
 	return &serviceRegistryImpl{
 		services: make(map[string]map[string]interface{}),
 	}
+}
+
+// SetPluginStatusChecker sets the plugin status checker
+func (r *serviceRegistryImpl) SetPluginStatusChecker(checker PluginStatusChecker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.statusChecker = checker
 }
 
 // Export registers a service from a plugin
@@ -259,6 +315,17 @@ func (r *serviceRegistryImpl) Import(pluginName, serviceName string) (interface{
 	}
 
 	r.mu.RLock()
+	statusChecker := r.statusChecker
+	r.mu.RUnlock()
+
+	// Verify the exporting plugin is loaded and running
+	if statusChecker != nil {
+		if !statusChecker.IsPluginRunning(pluginName) {
+			return nil, fmt.Errorf("plugin %s is not running", pluginName)
+		}
+	}
+
+	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	pluginServices, exists := r.services[pluginName]
@@ -292,6 +359,23 @@ func (r *serviceRegistryImpl) List(pluginName string) []string {
 	return names
 }
 
+// ListAll returns all exported services grouped by plugin
+func (r *serviceRegistryImpl) ListAll() map[string][]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[string][]string)
+	for pluginName, services := range r.services {
+		names := make([]string, 0, len(services))
+		for serviceName := range services {
+			names = append(names, serviceName)
+		}
+		result[pluginName] = names
+	}
+
+	return result
+}
+
 // Unregister removes a service from a plugin
 func (r *serviceRegistryImpl) Unregister(pluginName, serviceName string) error {
 	if pluginName == "" {
@@ -315,6 +399,19 @@ func (r *serviceRegistryImpl) Unregister(pluginName, serviceName string) error {
 		delete(r.services, pluginName)
 	}
 
+	return nil
+}
+
+// UnregisterAll removes all services from a plugin
+func (r *serviceRegistryImpl) UnregisterAll(pluginName string) error {
+	if pluginName == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	delete(r.services, pluginName)
 	return nil
 }
 
@@ -448,6 +545,7 @@ func (r *middlewareRegistryImpl) UnregisterAll(pluginName string) error {
 type HookSystem interface {
 	RegisterHook(pluginName string, hookType HookType, priority int, handler HookHandler) error
 	UnregisterHook(pluginName string, hookType HookType) error
+	UnregisterAll(pluginName string) error
 	ExecuteHooks(hookType HookType, ctx Context) error
 	ListHooks(hookType HookType) []HookRegistration
 }

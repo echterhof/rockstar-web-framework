@@ -8,18 +8,20 @@ import (
 
 // PluginManager manages the lifecycle of plugins
 type PluginManager interface {
-	// Loading
-	LoadPlugin(path string, config PluginConfig) error
+	// Discovery
+	DiscoverPlugins() error
 	LoadPluginsFromConfig(configPath string) error
-	UnloadPlugin(name string) error
 
 	// Lifecycle
 	InitializeAll() error
 	StartAll() error
 	StopAll() error
 
-	// Hot reload
-	ReloadPlugin(name string) error
+	// Individual plugin management
+	InitializePlugin(name string) error
+	StartPlugin(name string) error
+	StopPlugin(name string) error
+	DisablePlugin(name string) error
 
 	// Query
 	GetPlugin(name string) (Plugin, error)
@@ -40,13 +42,17 @@ type PluginManager interface {
 
 	// Database initialization
 	InitializeDatabase() error
+
+	// Metrics and monitoring
+	GetPluginMetrics(name string) *PluginMetrics
+	GetAllPluginMetrics() map[string]*PluginMetrics
+	ExportPrometheusMetrics() string
 }
 
 // pluginManagerImpl is the default implementation of PluginManager
 type pluginManagerImpl struct {
 	mu                 sync.RWMutex
 	registry           PluginRegistry
-	loader             PluginLoader
 	manifestParser     *ManifestParser
 	dependencyResolver *DependencyResolver
 	hookSystem         HookSystem
@@ -59,14 +65,13 @@ type pluginManagerImpl struct {
 	plugins   map[string]*pluginEntry
 	loadOrder []string
 
-	// Hot reload support
-	requestQueues map[string]*pluginRequestQueue
-
 	// Framework services for creating plugin contexts
-	router   RouterEngine
-	database DatabaseManager
-	cache    CacheManager
-	config   ConfigManager
+	router     RouterEngine
+	database   DatabaseManager
+	cache      CacheManager
+	config     ConfigManager
+	fileSystem FileManager
+	network    NetworkClient
 
 	// Shared registries
 	serviceRegistry    ServiceRegistry
@@ -75,6 +80,12 @@ type pluginManagerImpl struct {
 	// Error threshold configuration
 	errorThreshold int64 // Number of errors before warning/disabling
 	autoDisable    bool  // Whether to auto-disable plugins exceeding threshold
+
+	// Plugin configurations from framework config
+	pluginConfigs map[string]PluginConfig
+
+	// Plugin metrics collection
+	pluginMetrics *PluginMetricsCollector
 }
 
 // pluginEntry tracks a loaded plugin and its metadata
@@ -94,7 +105,6 @@ type pluginEntry struct {
 // NewPluginManager creates a new plugin manager
 func NewPluginManager(
 	registry PluginRegistry,
-	loader PluginLoader,
 	hookSystem HookSystem,
 	eventBus EventBus,
 	permissionChecker PermissionChecker,
@@ -104,10 +114,13 @@ func NewPluginManager(
 	database DatabaseManager,
 	cache CacheManager,
 	config ConfigManager,
+	fileSystem FileManager,
+	network NetworkClient,
 ) PluginManager {
-	return &pluginManagerImpl{
+	serviceRegistry := NewServiceRegistry()
+
+	pm := &pluginManagerImpl{
 		registry:           registry,
-		loader:             loader,
 		manifestParser:     NewManifestParser(),
 		dependencyResolver: NewDependencyResolver(),
 		hookSystem:         hookSystem,
@@ -119,13 +132,22 @@ func NewPluginManager(
 		database:           database,
 		cache:              cache,
 		config:             config,
+		fileSystem:         fileSystem,
+		network:            network,
 		plugins:            make(map[string]*pluginEntry),
 		loadOrder:          []string{},
-		serviceRegistry:    NewServiceRegistry(),
+		serviceRegistry:    serviceRegistry,
 		middlewareRegistry: NewMiddlewareRegistry(),
 		errorThreshold:     100,   // Default: 100 errors before action
 		autoDisable:        false, // Default: don't auto-disable, just warn
+		pluginConfigs:      make(map[string]PluginConfig),
+		pluginMetrics:      NewPluginMetricsCollector(),
 	}
+
+	// Set the plugin manager as the status checker for the service registry
+	serviceRegistry.SetPluginStatusChecker(pm)
+
+	return pm
 }
 
 // SetErrorThreshold sets the error threshold for plugin monitoring
@@ -136,139 +158,103 @@ func (m *pluginManagerImpl) SetErrorThreshold(threshold int64, autoDisable bool)
 	m.autoDisable = autoDisable
 }
 
-// LoadPlugin loads a single plugin from the specified path
-func (m *pluginManagerImpl) LoadPlugin(path string, config PluginConfig) error {
+// DiscoverPlugins discovers all registered compile-time plugins
+func (m *pluginManagerImpl) DiscoverPlugins() error {
 	startTime := time.Now()
 
-	// Apply defaults to config before using it
-	config.ApplyDefaults()
-
-	// Check if enabled flag is set
-	if !config.Enabled {
-		if m.logger != nil {
-			m.logger.Info(fmt.Sprintf("Skipping disabled plugin at %s", path))
-		}
-		return nil
-	}
-
-	// Load the plugin binary
-	plugin, err := m.loader.Load(path, config)
-	if err != nil {
-		m.recordLoadMetrics(path, false, time.Since(startTime))
-		return fmt.Errorf("failed to load plugin from %s: %w", path, err)
-	}
-
-	pluginName := plugin.Name()
-
-	// Check if already loaded
-	m.mu.Lock()
-	if _, exists := m.plugins[pluginName]; exists {
-		m.mu.Unlock()
-		m.recordLoadMetrics(pluginName, false, time.Since(startTime))
-		return fmt.Errorf("plugin %s is already loaded", pluginName)
-	}
-	m.mu.Unlock()
-
-	// Try to load manifest if it exists
-	var manifest *PluginManifest
-	// Manifest would typically be in the same directory as the plugin
-	// For now, we'll skip manifest loading in the basic implementation
-
-	// Create plugin entry
-	entry := &pluginEntry{
-		plugin:   plugin,
-		config:   config,
-		manifest: manifest,
-		status:   PluginStatusLoading,
-		loadTime: time.Now(),
-		enabled:  config.Enabled,
-	}
-
-	// Add to dependency resolver
-	m.dependencyResolver.AddPlugin(
-		pluginName,
-		plugin.Version(),
-		plugin.Dependencies(),
-		manifest,
-	)
-
-	// Store the entry
-	m.mu.Lock()
-	m.plugins[pluginName] = entry
-	m.mu.Unlock()
-
-	// Record successful load metrics
-	m.recordLoadMetrics(pluginName, true, time.Since(startTime))
+	// Get all registered plugin names from the compile-time registry
+	pluginNames := GetRegisteredPlugins()
 
 	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Loaded plugin %s version %s", pluginName, plugin.Version()))
+		m.logger.Info(fmt.Sprintf("Discovered %d registered plugins", len(pluginNames)))
+	}
+
+	// Create plugin instances for each registered plugin
+	for _, name := range pluginNames {
+		// Check if we have a config for this plugin
+		config, hasConfig := m.pluginConfigs[name]
+		if !hasConfig {
+			// Use default config if not specified
+			config = PluginConfig{
+				Enabled: true,
+				Config:  make(map[string]interface{}),
+			}
+			config.ApplyDefaults()
+		}
+
+		// Skip disabled plugins
+		if !config.Enabled {
+			if m.logger != nil {
+				m.logger.Info(fmt.Sprintf("Skipping disabled plugin %s", name))
+			}
+			continue
+		}
+
+		// Create plugin instance
+		plugin, err := CreatePlugin(name)
+		if err != nil {
+			m.recordLoadMetrics(name, false, time.Since(startTime))
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Failed to create plugin %s: %v", name, err))
+			}
+			continue
+		}
+
+		// Check if already discovered
+		m.mu.Lock()
+		if _, exists := m.plugins[name]; exists {
+			m.mu.Unlock()
+			m.recordLoadMetrics(name, false, time.Since(startTime))
+			if m.logger != nil {
+				m.logger.Warn(fmt.Sprintf("Plugin %s already discovered", name))
+			}
+			continue
+		}
+		m.mu.Unlock()
+
+		// Try to load manifest if it exists
+		var manifest *PluginManifest
+		// Manifest loading would be implemented here if needed
+
+		// Create plugin entry
+		entry := &pluginEntry{
+			plugin:   plugin,
+			config:   config,
+			manifest: manifest,
+			status:   PluginStatusLoading,
+			loadTime: time.Now(),
+			enabled:  config.Enabled,
+		}
+
+		// Add to dependency resolver
+		m.dependencyResolver.AddPlugin(
+			name,
+			plugin.Version(),
+			plugin.Dependencies(),
+			manifest,
+		)
+
+		// Store the entry
+		m.mu.Lock()
+		m.plugins[name] = entry
+		m.mu.Unlock()
+
+		// Record successful discovery metrics
+		m.recordLoadMetrics(name, true, time.Since(startTime))
+
+		if m.logger != nil {
+			m.logger.Info(fmt.Sprintf("Discovered plugin %s version %s", name, plugin.Version()))
+		}
 	}
 
 	return nil
 }
 
-// UnloadPlugin unloads a plugin
-func (m *pluginManagerImpl) UnloadPlugin(name string) error {
+// SetPluginConfig sets the configuration for a plugin before discovery
+func (m *pluginManagerImpl) SetPluginConfig(name string, config PluginConfig) {
 	m.mu.Lock()
-	entry, exists := m.plugins[name]
-	if !exists {
-		m.mu.Unlock()
-		return fmt.Errorf("plugin %s is not loaded", name)
-	}
-	m.mu.Unlock()
-
-	// Stop the plugin if running
-	if entry.status == PluginStatusRunning {
-		if err := entry.plugin.Stop(); err != nil {
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Error stopping plugin %s: %v", name, err))
-			}
-		}
-	}
-
-	// Cleanup the plugin
-	if err := entry.plugin.Cleanup(); err != nil {
-		if m.logger != nil {
-			m.logger.Error(fmt.Sprintf("Error cleaning up plugin %s: %v", name, err))
-		}
-	}
-
-	// Clean up middleware registered by this plugin
-	if m.middlewareRegistry != nil {
-		if err := m.middlewareRegistry.UnregisterAll(name); err != nil {
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Error unregistering middleware for plugin %s: %v", name, err))
-			}
-		}
-	}
-
-	// Unload from loader
-	if err := m.loader.Unload(entry.plugin); err != nil {
-		if m.logger != nil {
-			m.logger.Error(fmt.Sprintf("Error unloading plugin %s: %v", name, err))
-		}
-	}
-
-	// Unregister from registry
-	if err := m.registry.Unregister(name); err != nil {
-		if m.logger != nil {
-			m.logger.Error(fmt.Sprintf("Error unregistering plugin %s: %v", name, err))
-		}
-	}
-
-	// Remove from tracking
-	m.mu.Lock()
-	delete(m.plugins, name)
-	m.mu.Unlock()
-
-	// Update load order
-	m.updateLoadOrder()
-
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Unloaded plugin %s", name))
-	}
-
-	return nil
+	defer m.mu.Unlock()
+	m.pluginConfigs[name] = config
 }
 
 // InitializeAll initializes all loaded plugins in dependency order
@@ -280,20 +266,8 @@ func (m *pluginManagerImpl) InitializeAll() error {
 
 	// Initialize plugins in load order
 	for _, name := range m.loadOrder {
-		m.mu.RLock()
-		entry, exists := m.plugins[name]
-		m.mu.RUnlock()
-
-		if !exists || !entry.enabled {
-			continue
-		}
-
-		if err := m.initializePlugin(entry); err != nil {
-			m.incrementErrorCount(name, err)
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Failed to initialize plugin %s: %v", name, err))
-			}
-			// Continue with other plugins
+		if err := m.InitializePlugin(name); err != nil {
+			// Error already logged and handled in InitializePlugin
 			continue
 		}
 	}
@@ -301,9 +275,47 @@ func (m *pluginManagerImpl) InitializeAll() error {
 	return nil
 }
 
-// initializePlugin initializes a single plugin
-func (m *pluginManagerImpl) initializePlugin(entry *pluginEntry) error {
+// InitializePlugin initializes a single plugin by name
+func (m *pluginManagerImpl) InitializePlugin(name string) error {
+	m.mu.RLock()
+	entry, exists := m.plugins[name]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("plugin %s not found", name)
+	}
+
+	if !entry.enabled {
+		return fmt.Errorf("plugin %s is disabled", name)
+	}
+
+	return m.safeInitializePlugin(entry)
+}
+
+// safeInitializePlugin initializes a plugin with panic recovery
+func (m *pluginManagerImpl) safeInitializePlugin(entry *pluginEntry) (err error) {
 	pluginName := entry.plugin.Name()
+	startTime := time.Now()
+
+	// Get or create metrics for this plugin
+	pluginMetrics := m.pluginMetrics.GetOrCreate(pluginName)
+
+	// Recover from panics
+	defer func() {
+		duration := time.Since(startTime)
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panicked during initialization: %v", r)
+			entry.status = PluginStatusError
+			m.incrementErrorCount(pluginName, err)
+			pluginMetrics.RecordInit(duration, err)
+			m.DisablePlugin(pluginName)
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Plugin %s panicked during initialization: %v", pluginName, r))
+			}
+		} else {
+			pluginMetrics.RecordInit(duration, err)
+		}
+	}()
 
 	// Merge config with defaults from schema before creating context
 	schema := entry.plugin.ConfigSchema()
@@ -316,12 +328,20 @@ func (m *pluginManagerImpl) initializePlugin(entry *pluginEntry) error {
 	// Initialize the plugin
 	if err := entry.plugin.Initialize(ctx); err != nil {
 		entry.status = PluginStatusError
+		m.incrementErrorCount(pluginName, err)
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Failed to initialize plugin %s: %v", pluginName, err))
+		}
 		return err
 	}
 
 	// Register with registry
 	if err := m.registry.Register(entry.plugin, ctx); err != nil {
 		entry.status = PluginStatusError
+		m.incrementErrorCount(pluginName, err)
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Failed to register plugin %s: %v", pluginName, err))
+		}
 		return err
 	}
 
@@ -330,323 +350,271 @@ func (m *pluginManagerImpl) initializePlugin(entry *pluginEntry) error {
 	entry.status = PluginStatusInitialized
 
 	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Initialized plugin %s", pluginName))
+		m.logger.Info(fmt.Sprintf("Initialized plugin %s in %v", pluginName, time.Since(startTime)))
 	}
 
 	return nil
 }
 
-// StartAll starts all initialized plugins
+// StartAll starts all initialized plugins in dependency order
 func (m *pluginManagerImpl) StartAll() error {
-	m.mu.RLock()
-	plugins := make([]*pluginEntry, 0, len(m.plugins))
-	for _, entry := range m.plugins {
-		if entry.enabled && entry.status == PluginStatusInitialized {
-			plugins = append(plugins, entry)
-		}
-	}
-	m.mu.RUnlock()
-
-	for _, entry := range plugins {
-		if err := entry.plugin.Start(); err != nil {
-			pluginName := entry.plugin.Name()
-			m.incrementErrorCount(pluginName, err)
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Failed to start plugin %s: %v", pluginName, err))
-			}
-			entry.status = PluginStatusError
+	// Start plugins in load order (dependency order)
+	for _, name := range m.loadOrder {
+		if err := m.StartPlugin(name); err != nil {
+			// Error already logged and handled in StartPlugin
 			continue
-		}
-
-		entry.status = PluginStatusRunning
-
-		if m.logger != nil {
-			m.logger.Info(fmt.Sprintf("Started plugin %s", entry.plugin.Name()))
 		}
 	}
 
 	return nil
 }
 
-// StopAll stops all running plugins
-func (m *pluginManagerImpl) StopAll() error {
-	m.mu.RLock()
-	plugins := make([]*pluginEntry, 0, len(m.plugins))
-	for _, entry := range m.plugins {
-		if entry.status == PluginStatusRunning {
-			plugins = append(plugins, entry)
-		}
-	}
-	m.mu.RUnlock()
-
-	// Stop in reverse order
-	for i := len(plugins) - 1; i >= 0; i-- {
-		entry := plugins[i]
-		if err := entry.plugin.Stop(); err != nil {
-			pluginName := entry.plugin.Name()
-			m.incrementErrorCount(pluginName, err)
-			if m.logger != nil {
-				m.logger.Error(fmt.Sprintf("Failed to stop plugin %s: %v", pluginName, err))
-			}
-			continue
-		}
-
-		entry.status = PluginStatusStopped
-
-		if m.logger != nil {
-			m.logger.Info(fmt.Sprintf("Stopped plugin %s", entry.plugin.Name()))
-		}
-	}
-
-	return nil
-}
-
-// ReloadPlugin hot reloads a plugin with rollback on failure
-func (m *pluginManagerImpl) ReloadPlugin(name string) error {
+// StartPlugin starts a single plugin by name
+func (m *pluginManagerImpl) StartPlugin(name string) error {
 	m.mu.RLock()
 	entry, exists := m.plugins[name]
-	if !exists {
-		m.mu.RUnlock()
-		return fmt.Errorf("plugin %s is not loaded", name)
-	}
-
-	// Store old plugin and config for potential rollback
-	oldPlugin := entry.plugin
-	oldConfig := entry.config
-	oldStatus := entry.status
 	m.mu.RUnlock()
 
-	// Create a request queue for this plugin during reload
-	requestQueue := &pluginRequestQueue{
-		pluginName: name,
-		requests:   make([]interface{}, 0),
-		mu:         &sync.Mutex{},
-		done:       make(chan struct{}),
+	if !exists {
+		return fmt.Errorf("plugin %s not found", name)
 	}
 
-	// Register the queue (in a real implementation, this would be used by the request handler)
-	m.mu.Lock()
-	if m.requestQueues == nil {
-		m.requestQueues = make(map[string]*pluginRequestQueue)
+	if !entry.enabled {
+		return fmt.Errorf("plugin %s is disabled", name)
 	}
-	m.requestQueues[name] = requestQueue
-	m.mu.Unlock()
 
-	// Ensure we always signal completion and cleanup, even on error
+	if entry.status != PluginStatusInitialized {
+		return fmt.Errorf("plugin %s is not initialized (status: %s)", name, entry.status)
+	}
+
+	return m.safeStartPlugin(entry)
+}
+
+// safeStartPlugin starts a plugin with panic recovery
+func (m *pluginManagerImpl) safeStartPlugin(entry *pluginEntry) (err error) {
+	pluginName := entry.plugin.Name()
+	startTime := time.Now()
+
+	// Get or create metrics for this plugin
+	pluginMetrics := m.pluginMetrics.GetOrCreate(pluginName)
+
+	// Recover from panics
 	defer func() {
-		select {
-		case <-requestQueue.done:
-			// Already closed
-		default:
-			close(requestQueue.done)
+		duration := time.Since(startTime)
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panicked during start: %v", r)
+			entry.status = PluginStatusError
+			m.incrementErrorCount(pluginName, err)
+			pluginMetrics.RecordStart(duration, err)
+			m.DisablePlugin(pluginName)
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Plugin %s panicked during start: %v", pluginName, r))
+			}
+		} else {
+			pluginMetrics.RecordStart(duration, err)
 		}
-		m.cleanupRequestQueue(name)
 	}()
 
-	// Track reload status
-	reloadStartTime := time.Now()
-
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Starting hot reload for plugin %s", name))
-	}
-
-	// Step 1: Stop the plugin
-	if oldStatus == PluginStatusRunning {
-		if err := oldPlugin.Stop(); err != nil {
-			return fmt.Errorf("failed to stop plugin for reload: %w", err)
-		}
+	if err := entry.plugin.Start(); err != nil {
+		m.incrementErrorCount(pluginName, err)
+		entry.status = PluginStatusError
 		if m.logger != nil {
-			m.logger.Info(fmt.Sprintf("Stopped plugin %s for reload", name))
+			m.logger.Error(fmt.Sprintf("Failed to start plugin %s: %v", pluginName, err))
 		}
+		return err
 	}
 
-	// Step 2: Unload the plugin
-	if err := m.UnloadPlugin(name); err != nil {
-		// Attempt rollback: restore the old plugin
-		if rollbackErr := m.rollbackPlugin(name, oldPlugin, oldConfig, oldStatus); rollbackErr != nil {
-			return fmt.Errorf("failed to unload plugin for reload and rollback failed: %w (rollback error: %v)", err, rollbackErr)
-		}
-		return fmt.Errorf("failed to unload plugin for reload (rolled back): %w", err)
-	}
+	entry.status = PluginStatusRunning
 
 	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Unloaded plugin %s for reload", name))
+		m.logger.Info(fmt.Sprintf("Started plugin %s in %v", pluginName, time.Since(startTime)))
 	}
 
-	// Step 3: Load the new version
-	if err := m.LoadPlugin(oldConfig.Path, oldConfig); err != nil {
-		// Attempt rollback: restore the old plugin
-		if rollbackErr := m.rollbackPlugin(name, oldPlugin, oldConfig, oldStatus); rollbackErr != nil {
-			return fmt.Errorf("failed to load new plugin version and rollback failed: %w (rollback error: %v)", err, rollbackErr)
+	return nil
+}
+
+// StopAll stops all running plugins in reverse dependency order
+func (m *pluginManagerImpl) StopAll() error {
+	// Stop plugins in reverse load order (reverse dependency order)
+	for i := len(m.loadOrder) - 1; i >= 0; i-- {
+		name := m.loadOrder[i]
+		if err := m.StopPlugin(name); err != nil {
+			// Error already logged and handled in StopPlugin
+			continue
 		}
-		return fmt.Errorf("failed to load new plugin version (rolled back): %w", err)
 	}
 
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Loaded new version of plugin %s", name))
-	}
+	return nil
+}
 
-	// Step 4: Initialize the new plugin
+// StopPlugin stops a single plugin by name
+func (m *pluginManagerImpl) StopPlugin(name string) error {
 	m.mu.RLock()
-	newEntry, exists := m.plugins[name]
+	entry, exists := m.plugins[name]
 	m.mu.RUnlock()
 
 	if !exists {
-		// Attempt rollback
-		if rollbackErr := m.rollbackPlugin(name, oldPlugin, oldConfig, oldStatus); rollbackErr != nil {
-			return fmt.Errorf("plugin %s not found after reload and rollback failed (rollback error: %v)", name, rollbackErr)
-		}
-		return fmt.Errorf("plugin %s not found after reload (rolled back)", name)
+		return fmt.Errorf("plugin %s not found", name)
 	}
 
-	if err := m.initializePlugin(newEntry); err != nil {
-		// Attempt rollback
-		if rollbackErr := m.rollbackPlugin(name, oldPlugin, oldConfig, oldStatus); rollbackErr != nil {
-			return fmt.Errorf("failed to initialize reloaded plugin and rollback failed: %w (rollback error: %v)", err, rollbackErr)
+	if entry.status != PluginStatusRunning {
+		// Already stopped or not running
+		return nil
+	}
+
+	return m.safeStopPlugin(entry)
+}
+
+// safeStopPlugin stops a plugin with panic recovery
+func (m *pluginManagerImpl) safeStopPlugin(entry *pluginEntry) (err error) {
+	pluginName := entry.plugin.Name()
+
+	// Get or create metrics for this plugin
+	pluginMetrics := m.pluginMetrics.GetOrCreate(pluginName)
+
+	// Recover from panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panicked during stop: %v", r)
+			entry.status = PluginStatusError
+			m.incrementErrorCount(pluginName, err)
+			pluginMetrics.RecordStop(err)
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Plugin %s panicked during stop: %v", pluginName, r))
+			}
+		} else {
+			pluginMetrics.RecordStop(err)
 		}
-		return fmt.Errorf("failed to initialize reloaded plugin (rolled back): %w", err)
+	}()
+
+	if err := entry.plugin.Stop(); err != nil {
+		m.incrementErrorCount(pluginName, err)
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Failed to stop plugin %s: %v", pluginName, err))
+		}
+		return err
+	}
+
+	entry.status = PluginStatusStopped
+
+	if m.logger != nil {
+		m.logger.Info(fmt.Sprintf("Stopped plugin %s", pluginName))
+	}
+
+	return nil
+}
+
+// DisablePlugin disables a plugin and cleans up its resources
+func (m *pluginManagerImpl) DisablePlugin(name string) error {
+	m.mu.Lock()
+	entry, exists := m.plugins[name]
+	if !exists {
+		m.mu.Unlock()
+		return fmt.Errorf("plugin %s not found", name)
+	}
+
+	// Mark as disabled
+	entry.enabled = false
+	entry.status = PluginStatusError
+	m.mu.Unlock()
+
+	// Stop the plugin if running
+	if entry.status == PluginStatusRunning {
+		if err := m.safeStopPlugin(entry); err != nil {
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Error stopping plugin %s during disable: %v", name, err))
+			}
+		}
+	}
+
+	// Cleanup the plugin
+	if err := m.safeCleanupPlugin(entry); err != nil {
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Error cleaning up plugin %s during disable: %v", name, err))
+		}
+	}
+
+	// Clean up middleware registered by this plugin
+	if m.middlewareRegistry != nil {
+		if err := m.middlewareRegistry.UnregisterAll(name); err != nil {
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Error unregistering middleware for plugin %s: %v", name, err))
+			}
+		}
+	}
+
+	// Clean up services exported by this plugin
+	if m.serviceRegistry != nil {
+		if err := m.serviceRegistry.UnregisterAll(name); err != nil {
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Error unregistering services for plugin %s: %v", name, err))
+			}
+		}
+	}
+
+	// Unregister hooks
+	if m.hookSystem != nil {
+		if err := m.hookSystem.UnregisterAll(name); err != nil {
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Error unregistering hooks for plugin %s: %v", name, err))
+			}
+		}
+	}
+
+	// Unsubscribe from events
+	if m.eventBus != nil {
+		if err := m.eventBus.UnregisterAll(name); err != nil {
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Error unregistering events for plugin %s: %v", name, err))
+			}
+		}
+	}
+
+	// Unregister from registry
+	if err := m.registry.Unregister(name); err != nil {
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Error unregistering plugin %s: %v", name, err))
+		}
 	}
 
 	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Initialized new version of plugin %s", name))
+		m.logger.Warn(fmt.Sprintf("Disabled plugin %s", name))
 	}
 
-	// Step 5: Start the new plugin
-	if err := newEntry.plugin.Start(); err != nil {
-		// Attempt rollback
-		if rollbackErr := m.rollbackPlugin(name, oldPlugin, oldConfig, oldStatus); rollbackErr != nil {
-			return fmt.Errorf("failed to start reloaded plugin and rollback failed: %w (rollback error: %v)", err, rollbackErr)
-		}
-		return fmt.Errorf("failed to start reloaded plugin (rolled back): %w", err)
-	}
-
-	newEntry.status = PluginStatusRunning
-
-	// Record reload metrics
-	reloadDuration := time.Since(reloadStartTime)
+	// Record disable metric
 	if m.metrics != nil {
-		m.metrics.RecordHistogram(
-			"plugin.reload.duration",
-			float64(reloadDuration.Milliseconds()),
-			map[string]string{
-				"plugin":  name,
-				"success": "true",
-			},
-		)
 		m.metrics.IncrementCounter(
-			"plugin.reload.success",
+			"plugin.disabled",
 			map[string]string{
 				"plugin": name,
 			},
 		)
 	}
 
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Successfully reloaded plugin %s in %v", name, reloadDuration))
-	}
-
-	// Cleanup and channel close will be handled by defer
 	return nil
 }
 
-// rollbackPlugin attempts to restore a plugin to its previous state after a failed reload
-func (m *pluginManagerImpl) rollbackPlugin(name string, oldPlugin Plugin, oldConfig PluginConfig, oldStatus PluginStatus) error {
-	if m.logger != nil {
-		m.logger.Warn(fmt.Sprintf("Attempting to rollback plugin %s to previous version", name))
-	}
+// safeCleanupPlugin cleans up a plugin with panic recovery
+func (m *pluginManagerImpl) safeCleanupPlugin(entry *pluginEntry) (err error) {
+	pluginName := entry.plugin.Name()
 
-	// Remove the failed new plugin if it exists
-	m.mu.Lock()
-	delete(m.plugins, name)
-	m.mu.Unlock()
-
-	// Recreate the old plugin entry
-	entry := &pluginEntry{
-		plugin:   oldPlugin,
-		config:   oldConfig,
-		status:   PluginStatusLoading,
-		loadTime: time.Now(),
-		enabled:  oldConfig.Enabled,
-	}
-
-	// Store the entry
-	m.mu.Lock()
-	m.plugins[name] = entry
-	m.mu.Unlock()
-
-	// Initialize the old plugin
-	if err := m.initializePlugin(entry); err != nil {
-		return fmt.Errorf("failed to initialize plugin during rollback: %w", err)
-	}
-
-	// If it was running before, start it again
-	if oldStatus == PluginStatusRunning {
-		if err := oldPlugin.Start(); err != nil {
-			return fmt.Errorf("failed to start plugin during rollback: %w", err)
+	// Recover from panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("plugin panicked during cleanup: %v", r)
+			if m.logger != nil {
+				m.logger.Error(fmt.Sprintf("Plugin %s panicked during cleanup: %v", pluginName, r))
+			}
 		}
-		entry.status = PluginStatusRunning
+	}()
+
+	if err := entry.plugin.Cleanup(); err != nil {
+		if m.logger != nil {
+			m.logger.Error(fmt.Sprintf("Error cleaning up plugin %s: %v", pluginName, err))
+		}
+		return err
 	}
 
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Successfully rolled back plugin %s to previous version", name))
-	}
-
-	// Record rollback metrics
-	if m.metrics != nil {
-		m.metrics.IncrementCounter(
-			"plugin.reload.rollback",
-			map[string]string{
-				"plugin": name,
-			},
-		)
-	}
-
-	return nil
-}
-
-// cleanupRequestQueue removes the request queue for a plugin
-func (m *pluginManagerImpl) cleanupRequestQueue(name string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.requestQueues != nil {
-		delete(m.requestQueues, name)
-	}
-}
-
-// pluginRequestQueue holds requests for a plugin during reload
-type pluginRequestQueue struct {
-	pluginName string
-	requests   []interface{}
-	mu         *sync.Mutex
-	done       chan struct{}
-}
-
-// IsReloading checks if a plugin is currently being reloaded
-func (m *pluginManagerImpl) IsReloading(name string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if m.requestQueues == nil {
-		return false
-	}
-
-	_, exists := m.requestQueues[name]
-	return exists
-}
-
-// WaitForReload waits for a plugin reload to complete
-func (m *pluginManagerImpl) WaitForReload(name string) error {
-	m.mu.RLock()
-	queue, exists := m.requestQueues[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return nil // Not reloading
-	}
-
-	// Wait for reload to complete
-	<-queue.done
 	return nil
 }
 
@@ -692,6 +660,19 @@ func (m *pluginManagerImpl) IsLoaded(name string) bool {
 
 	_, exists := m.plugins[name]
 	return exists
+}
+
+// IsPluginRunning checks if a plugin is loaded and running (implements PluginStatusChecker)
+func (m *pluginManagerImpl) IsPluginRunning(name string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	entry, exists := m.plugins[name]
+	if !exists {
+		return false
+	}
+
+	return entry.enabled && entry.status == PluginStatusRunning
 }
 
 // ResolveDependencies resolves plugin dependencies and determines load order
@@ -781,6 +762,8 @@ func (m *pluginManagerImpl) createPluginContext(pluginName string, config Plugin
 		m.database,
 		m.cache,
 		m.config,
+		m.fileSystem,
+		m.network,
 		config.Config,
 		config.Permissions,
 		m.hookSystem,
@@ -843,6 +826,10 @@ func (m *pluginManagerImpl) incrementErrorCount(pluginName string, err error) {
 
 	m.mu.Unlock()
 
+	// Record error in plugin metrics
+	pluginMetrics := m.pluginMetrics.GetOrCreate(pluginName)
+	pluginMetrics.RecordError(err)
+
 	// Record error metric
 	if m.metrics != nil {
 		m.metrics.IncrementCounter(
@@ -878,53 +865,16 @@ func (m *pluginManagerImpl) incrementErrorCount(pluginName string, err error) {
 				m.logger.Warn(fmt.Sprintf("Auto-disabling plugin %s due to error threshold", pluginName))
 			}
 
-			// Disable the plugin
-			m.mu.Lock()
-			if entry, exists := m.plugins[pluginName]; exists {
-				entry.enabled = false
-				entry.status = PluginStatusError
-			}
-			m.mu.Unlock()
-
-			// Stop the plugin if it's running
+			// Disable the plugin asynchronously
 			go func() {
-				if err := m.stopPlugin(pluginName); err != nil {
+				if err := m.DisablePlugin(pluginName); err != nil {
 					if m.logger != nil {
-						m.logger.Error(fmt.Sprintf("Failed to stop plugin %s after threshold exceeded: %v", pluginName, err))
+						m.logger.Error(fmt.Sprintf("Failed to disable plugin %s after threshold exceeded: %v", pluginName, err))
 					}
 				}
 			}()
 		}
 	}
-}
-
-// stopPlugin stops a single plugin
-func (m *pluginManagerImpl) stopPlugin(name string) error {
-	m.mu.RLock()
-	entry, exists := m.plugins[name]
-	m.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("plugin %s not found", name)
-	}
-
-	if entry.status != PluginStatusRunning {
-		return nil // Already stopped
-	}
-
-	if err := entry.plugin.Stop(); err != nil {
-		return fmt.Errorf("failed to stop plugin: %w", err)
-	}
-
-	m.mu.Lock()
-	entry.status = PluginStatusStopped
-	m.mu.Unlock()
-
-	if m.logger != nil {
-		m.logger.Info(fmt.Sprintf("Stopped plugin %s", name))
-	}
-
-	return nil
 }
 
 // updateLoadOrder updates the load order after plugin changes
@@ -1094,4 +1044,19 @@ func (m *pluginManagerImpl) InitializeDatabase() error {
 	}
 
 	return nil
+}
+
+// GetPluginMetrics returns metrics for a specific plugin
+func (m *pluginManagerImpl) GetPluginMetrics(name string) *PluginMetrics {
+	return m.pluginMetrics.Get(name)
+}
+
+// GetAllPluginMetrics returns metrics for all plugins
+func (m *pluginManagerImpl) GetAllPluginMetrics() map[string]*PluginMetrics {
+	return m.pluginMetrics.GetAll()
+}
+
+// ExportPrometheusMetrics exports all plugin metrics in Prometheus format
+func (m *pluginManagerImpl) ExportPrometheusMetrics() string {
+	return m.pluginMetrics.ExportPrometheus()
 }

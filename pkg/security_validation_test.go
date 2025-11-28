@@ -302,6 +302,8 @@ func (m *validationMockContext) GetCookie(name string) (*Cookie, error) {
 }
 func (m *validationMockContext) SetHeader(key, value string)               {}
 func (m *validationMockContext) GetHeader(key string) string               { return "" }
+func (m *validationMockContext) Set(key string, value interface{})         {}
+func (m *validationMockContext) Get(key string) (interface{}, bool)        { return nil, false }
 func (m *validationMockContext) FormValue(key string) string               { return "" }
 func (m *validationMockContext) FormFile(key string) (*FormFile, error)    { return nil, nil }
 func (m *validationMockContext) IsAuthenticated() bool                     { return false }

@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -166,7 +167,7 @@ func TestAuthenticateJWTExpired(t *testing.T) {
 
 	// Check error message contains "expired"
 	errMsg := err.Error()
-	if !stringContains(errMsg, "expired") {
+	if !strings.Contains(errMsg, "expired") {
 		t.Errorf("Expected error message to contain 'expired', got: %v", errMsg)
 	}
 }

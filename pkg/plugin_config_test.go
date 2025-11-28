@@ -371,7 +371,6 @@ func createMockPluginManagerForConfigTest(t *testing.T) PluginManager {
 	metrics := &MockMetrics{}
 
 	registry := NewPluginRegistry()
-	loader := NewMockPluginLoader()
 	hookSystem := NewHookSystem(logger, metrics)
 	eventBus := NewEventBus(logger)
 	permChecker := NewPermissionChecker(logger)
@@ -381,10 +380,11 @@ func createMockPluginManagerForConfigTest(t *testing.T) PluginManager {
 	database := &MockDatabase{}
 	cache := &MockCache{}
 	config := NewConfigManager()
+	fileSystem := &MockFileManager{}
+	network := &MockNetworkClient{}
 
 	return NewPluginManager(
 		registry,
-		loader,
 		hookSystem,
 		eventBus,
 		permChecker,
@@ -394,6 +394,8 @@ func createMockPluginManagerForConfigTest(t *testing.T) PluginManager {
 		database,
 		cache,
 		config,
+		fileSystem,
+		network,
 	)
 }
 
@@ -401,9 +403,7 @@ func createMockPluginManagerForConfigTest(t *testing.T) PluginManager {
 
 func TestPluginConfig_ApplyDefaults(t *testing.T) {
 	t.Run("initializes nil Config to empty map", func(t *testing.T) {
-		config := PluginConfig{
-			Path: "/path/to/plugin",
-		}
+		config := PluginConfig{}
 
 		config.ApplyDefaults()
 
@@ -423,7 +423,6 @@ func TestPluginConfig_ApplyDefaults(t *testing.T) {
 		}
 
 		config := PluginConfig{
-			Path:   "/path/to/plugin",
 			Config: existingConfig,
 		}
 
@@ -447,9 +446,7 @@ func TestPluginConfig_ApplyDefaults(t *testing.T) {
 	})
 
 	t.Run("initializes nil CustomPermissions to empty map", func(t *testing.T) {
-		config := PluginConfig{
-			Path: "/path/to/plugin",
-		}
+		config := PluginConfig{}
 
 		config.ApplyDefaults()
 
@@ -469,7 +466,6 @@ func TestPluginConfig_ApplyDefaults(t *testing.T) {
 		}
 
 		config := PluginConfig{
-			Path: "/path/to/plugin",
 			Permissions: PluginPermissions{
 				AllowDatabase:     true,
 				CustomPermissions: customPerms,
@@ -492,9 +488,7 @@ func TestPluginConfig_ApplyDefaults(t *testing.T) {
 	})
 
 	t.Run("Priority defaults to 0", func(t *testing.T) {
-		config := PluginConfig{
-			Path: "/path/to/plugin",
-		}
+		config := PluginConfig{}
 
 		config.ApplyDefaults()
 
@@ -505,7 +499,6 @@ func TestPluginConfig_ApplyDefaults(t *testing.T) {
 
 	t.Run("preserves non-zero Priority", func(t *testing.T) {
 		config := PluginConfig{
-			Path:     "/path/to/plugin",
 			Priority: 10,
 		}
 
@@ -558,12 +551,10 @@ func TestPluginsConfig_ApplyDefaults(t *testing.T) {
 		plugins := []PluginConfigEntry{
 			{
 				Name:    "plugin1",
-				Path:    "/path/to/plugin1",
 				Enabled: true,
 			},
 			{
 				Name:    "plugin2",
-				Path:    "/path/to/plugin2",
 				Enabled: false,
 			},
 		}
@@ -617,7 +608,6 @@ func TestPluginConfig_DefaultsInLoadPlugin(t *testing.T) {
 		metrics := &MockMetrics{}
 
 		registry := NewPluginRegistry()
-		loader := NewMockPluginLoader()
 		hookSystem := NewHookSystem(logger, metrics)
 		eventBus := NewEventBus(logger)
 		permChecker := NewPermissionChecker(logger)
@@ -627,9 +617,11 @@ func TestPluginConfig_DefaultsInLoadPlugin(t *testing.T) {
 		cache := &MockCache{}
 		configMgr := NewConfigManager()
 
+		fileSystem := &MockFileManager{}
+		network := &MockNetworkClient{}
+
 		manager := NewPluginManager(
 			registry,
-			loader,
 			hookSystem,
 			eventBus,
 			permChecker,
@@ -639,19 +631,26 @@ func TestPluginConfig_DefaultsInLoadPlugin(t *testing.T) {
 			database,
 			cache,
 			configMgr,
+			fileSystem,
+			network,
 		)
 
 		// Create a config with nil Config map
 		config := PluginConfig{
 			Enabled: true,
-			Path:    "./test-plugin",
 		}
 
-		// LoadPlugin should apply defaults
-		// Note: This will fail to load the actual plugin, but we're testing that
-		// defaults are applied before the load attempt
-		_ = manager.LoadPlugin("./test-plugin", config)
+		// Apply defaults
+		config.ApplyDefaults()
 
 		// The test passes if no panic occurs from nil map access
+		if config.Config == nil {
+			t.Error("Expected Config to be initialized to empty map")
+		}
+
+		// Verify manager was created successfully
+		if manager == nil {
+			t.Error("Expected manager to be created")
+		}
 	})
 }

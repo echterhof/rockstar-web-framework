@@ -39,6 +39,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -57,6 +59,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -122,6 +126,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -170,6 +176,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -188,6 +196,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -263,6 +273,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -318,6 +330,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -336,6 +350,8 @@ func TestProperty_InterPluginCallMediation(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -422,6 +438,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -440,6 +458,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -522,6 +542,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -606,6 +628,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -670,6 +694,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem
@@ -688,6 +714,8 @@ func TestProperty_ServiceDiscoverability(t *testing.T) {
 					&MockDatabase{},
 					&MockCache{},
 					&MockConfig{},
+					&MockFileManager{},
+					&MockNetworkClient{},
 					map[string]interface{}{},
 					PluginPermissions{},
 					nil, // hookSystem

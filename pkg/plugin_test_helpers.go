@@ -236,23 +236,33 @@ func (m *MockConfig) Validate() error              { return nil }
 func (m *MockConfig) Watch(callback func()) error  { return nil }
 func (m *MockConfig) StopWatching() error          { return nil }
 
-type MockPluginLoader struct{}
+type MockFileManager struct{}
 
-func NewMockPluginLoader() PluginLoader {
-	return &MockPluginLoader{}
-}
-
-func (m *MockPluginLoader) Load(path string, config PluginConfig) (Plugin, error) {
-	// Return error for non-existent plugins
-	return nil, fmt.Errorf("plugin not found")
-}
-
-func (m *MockPluginLoader) Unload(plugin Plugin) error {
+func (m *MockFileManager) Read(path string) ([]byte, error)     { return nil, nil }
+func (m *MockFileManager) Write(path string, data []byte) error { return nil }
+func (m *MockFileManager) Delete(path string) error             { return nil }
+func (m *MockFileManager) Exists(path string) bool              { return false }
+func (m *MockFileManager) CreateDir(path string) error          { return nil }
+func (m *MockFileManager) SaveUploadedFile(ctx Context, filename string, destPath string) error {
 	return nil
 }
 
-func (m *MockPluginLoader) ResolvePath(path string) (string, error) {
-	return path, nil
+type MockNetworkClient struct{}
+
+func (m *MockNetworkClient) Get(url string, headers map[string]string) ([]byte, error) {
+	return nil, nil
+}
+func (m *MockNetworkClient) Post(url string, body []byte, headers map[string]string) ([]byte, error) {
+	return nil, nil
+}
+func (m *MockNetworkClient) Put(url string, body []byte, headers map[string]string) ([]byte, error) {
+	return nil, nil
+}
+func (m *MockNetworkClient) Delete(url string, headers map[string]string) ([]byte, error) {
+	return nil, nil
+}
+func (m *MockNetworkClient) Do(method, url string, body []byte, headers map[string]string) ([]byte, int, error) {
+	return nil, 0, nil
 }
 
 // LifecycleTrackingPlugin tracks lifecycle method calls for testing
@@ -314,100 +324,855 @@ func (p *LifecycleTrackingPlugin) OnConfigChange(config map[string]interface{}) 
 	return nil
 }
 
-// LifecycleTrackingPluginLoader loads lifecycle tracking plugins
-type LifecycleTrackingPluginLoader struct {
-	plugin Plugin
+// TestPlugin is a simple test plugin with configurable behavior
+type TestPlugin struct {
+	name         string
+	version      string
+	initPanic    bool
+	startPanic   bool
+	stopPanic    bool
+	cleanupPanic bool
+	initError    bool
+	startError   bool
+	stopError    bool
+	cleanupError bool
 }
 
-func (l *LifecycleTrackingPluginLoader) Load(path string, config PluginConfig) (Plugin, error) {
-	return l.plugin, nil
-}
+func (p *TestPlugin) Name() string        { return p.name }
+func (p *TestPlugin) Version() string     { return p.version }
+func (p *TestPlugin) Description() string { return "Test plugin" }
+func (p *TestPlugin) Author() string      { return "Test" }
 
-func (l *LifecycleTrackingPluginLoader) Unload(plugin Plugin) error {
-	return nil
-}
-
-func (l *LifecycleTrackingPluginLoader) ResolvePath(path string) (string, error) {
-	return path, nil
-}
-
-// RollbackTestPluginLoader simulates reload failures for testing rollback
-type RollbackTestPluginLoader struct {
-	plugin           Plugin
-	shouldFailReload bool
-	loadCount        int
-}
-
-func (l *RollbackTestPluginLoader) Load(path string, config PluginConfig) (Plugin, error) {
-	l.loadCount++
-
-	// Fail on the second load (the reload attempt)
-	if l.shouldFailReload && l.loadCount > 1 {
-		return nil, fmt.Errorf("simulated reload failure")
-	}
-
-	return l.plugin, nil
-}
-
-func (l *RollbackTestPluginLoader) Unload(plugin Plugin) error {
-	return nil
-}
-
-func (l *RollbackTestPluginLoader) ResolvePath(path string) (string, error) {
-	return path, nil
-}
-
-// SlowReloadPlugin simulates a slow reload for testing request queuing
-type SlowReloadPlugin struct {
-	name           string
-	version        string
-	lifecycleSteps []string
-	mu             *sync.Mutex
-	reloadDelay    time.Duration
-}
-
-func (p *SlowReloadPlugin) Name() string        { return p.name }
-func (p *SlowReloadPlugin) Version() string     { return p.version }
-func (p *SlowReloadPlugin) Description() string { return "Slow reload plugin" }
-func (p *SlowReloadPlugin) Author() string      { return "Test" }
-func (p *SlowReloadPlugin) Dependencies() []PluginDependency {
+func (p *TestPlugin) Dependencies() []PluginDependency {
 	return []PluginDependency{}
 }
 
-func (p *SlowReloadPlugin) Initialize(ctx PluginContext) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lifecycleSteps = append(p.lifecycleSteps, "Initialize")
-	// Add delay to simulate slow initialization
-	time.Sleep(p.reloadDelay)
+func (p *TestPlugin) Initialize(ctx PluginContext) error {
+	if p.initPanic {
+		panic("intentional panic during initialization")
+	}
+	if p.initError {
+		return fmt.Errorf("intentional error during initialization")
+	}
 	return nil
 }
 
-func (p *SlowReloadPlugin) Start() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lifecycleSteps = append(p.lifecycleSteps, "Start")
+func (p *TestPlugin) Start() error {
+	if p.startPanic {
+		panic("intentional panic during start")
+	}
+	if p.startError {
+		return fmt.Errorf("intentional error during start")
+	}
 	return nil
 }
 
-func (p *SlowReloadPlugin) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lifecycleSteps = append(p.lifecycleSteps, "Stop")
+func (p *TestPlugin) Stop() error {
+	if p.stopPanic {
+		panic("intentional panic during stop")
+	}
+	if p.stopError {
+		return fmt.Errorf("intentional error during stop")
+	}
 	return nil
 }
 
-func (p *SlowReloadPlugin) Cleanup() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lifecycleSteps = append(p.lifecycleSteps, "Cleanup")
+func (p *TestPlugin) Cleanup() error {
+	if p.cleanupPanic {
+		panic("intentional panic during cleanup")
+	}
+	if p.cleanupError {
+		return fmt.Errorf("intentional error during cleanup")
+	}
 	return nil
 }
 
-func (p *SlowReloadPlugin) ConfigSchema() map[string]interface{} {
-	return map[string]interface{}{}
+func (p *TestPlugin) ConfigSchema() map[string]interface{} {
+	return make(map[string]interface{})
 }
 
-func (p *SlowReloadPlugin) OnConfigChange(config map[string]interface{}) error {
+func (p *TestPlugin) OnConfigChange(config map[string]interface{}) error {
 	return nil
+}
+
+// NewTestLogger creates a logger for testing
+func NewTestLogger() Logger {
+	return &MockLogger{}
+}
+
+// NewTestMetrics creates a metrics collector for testing
+func NewTestMetrics() MetricsCollector {
+	return &MockMetrics{}
+}
+
+// ============================================================================
+// Mock PluginContext Implementation
+// ============================================================================
+
+// MockPluginContext is a comprehensive mock implementation of PluginContext
+// for testing plugins in isolation
+type MockPluginContext struct {
+	// Framework services
+	router     RouterEngine
+	logger     Logger
+	metrics    MetricsCollector
+	database   DatabaseManager
+	cache      CacheManager
+	config     ConfigManager
+	fileSystem FileManager
+	network    NetworkClient
+
+	// Plugin-specific data
+	pluginConfig  map[string]interface{}
+	pluginStorage PluginStorage
+
+	// Systems
+	hookSystem         HookSystem
+	eventBus           EventBus
+	serviceRegistry    ServiceRegistry
+	middlewareRegistry MiddlewareRegistry
+
+	// Permissions
+	permissions       PluginPermissions
+	permissionChecker PermissionChecker
+
+	// Tracking for testing
+	RegisteredHooks      []HookRegistration
+	PublishedEvents      []EventPublication
+	SubscribedEvents     []EventSubscription
+	ExportedServices     map[string]interface{}
+	ImportedServices     []ServiceImport
+	RegisteredMiddleware []MiddlewareRegistration
+	mu                   sync.RWMutex
+}
+
+// EventPublication tracks published events
+type EventPublication struct {
+	Event string
+	Data  interface{}
+}
+
+// EventSubscription tracks event subscriptions
+type EventSubscription struct {
+	Event   string
+	Handler EventHandler
+}
+
+// ServiceImport tracks service imports
+type ServiceImport struct {
+	PluginName  string
+	ServiceName string
+}
+
+// NewMockPluginContext creates a new mock plugin context with default implementations
+func NewMockPluginContext() *MockPluginContext {
+	return &MockPluginContext{
+		router:               &MockRouter{},
+		logger:               &MockLogger{},
+		metrics:              &MockMetrics{},
+		database:             &MockDatabase{},
+		cache:                &MockCache{},
+		config:               &MockConfig{},
+		fileSystem:           &MockFileManager{},
+		network:              &MockNetworkClient{},
+		pluginConfig:         make(map[string]interface{}),
+		pluginStorage:        NewMockPluginStorage(),
+		hookSystem:           NewMockHookSystem(),
+		eventBus:             NewMockEventBus(),
+		serviceRegistry:      NewServiceRegistry(),
+		middlewareRegistry:   NewMiddlewareRegistry(),
+		permissions:          PluginPermissions{},
+		permissionChecker:    nil,
+		RegisteredHooks:      []HookRegistration{},
+		PublishedEvents:      []EventPublication{},
+		SubscribedEvents:     []EventSubscription{},
+		ExportedServices:     make(map[string]interface{}),
+		ImportedServices:     []ServiceImport{},
+		RegisteredMiddleware: []MiddlewareRegistration{},
+	}
+}
+
+// NewMockPluginContextWithPermissions creates a mock context with specific permissions
+func NewMockPluginContextWithPermissions(permissions PluginPermissions) *MockPluginContext {
+	ctx := NewMockPluginContext()
+	ctx.permissions = permissions
+	checker := NewMockPermissionChecker(permissions)
+	if mockChecker, ok := checker.(*MockPermissionChecker); ok {
+		ctx.permissionChecker = mockChecker
+	}
+	return ctx
+}
+
+// NewMockPluginContextWithConfig creates a mock context with specific configuration
+func NewMockPluginContextWithConfig(config map[string]interface{}) *MockPluginContext {
+	ctx := NewMockPluginContext()
+	ctx.pluginConfig = config
+	return ctx
+}
+
+// Router returns the mock router
+func (m *MockPluginContext) Router() RouterEngine {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "router"); err != nil {
+			return &MockRouter{} // Return no-op router
+		}
+	}
+	return m.router
+}
+
+// Logger returns the mock logger
+func (m *MockPluginContext) Logger() Logger {
+	return m.logger
+}
+
+// Metrics returns the mock metrics collector
+func (m *MockPluginContext) Metrics() MetricsCollector {
+	return m.metrics
+}
+
+// Database returns the mock database manager
+func (m *MockPluginContext) Database() DatabaseManager {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "database"); err != nil {
+			return &MockDatabase{} // Return no-op database
+		}
+	}
+	return m.database
+}
+
+// Cache returns the mock cache manager
+func (m *MockPluginContext) Cache() CacheManager {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "cache"); err != nil {
+			return &MockCache{} // Return no-op cache
+		}
+	}
+	return m.cache
+}
+
+// Config returns the mock config manager
+func (m *MockPluginContext) Config() ConfigManager {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "config"); err != nil {
+			return &MockConfig{} // Return no-op config
+		}
+	}
+	return m.config
+}
+
+// FileSystem returns the mock file manager
+func (m *MockPluginContext) FileSystem() FileManager {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "filesystem"); err != nil {
+			return &MockFileManager{} // Return no-op file manager
+		}
+	}
+	return m.fileSystem
+}
+
+// Network returns the mock network client
+func (m *MockPluginContext) Network() NetworkClient {
+	if m.permissionChecker != nil {
+		if err := m.permissionChecker.CheckPermission("test-plugin", "network"); err != nil {
+			return &MockNetworkClient{} // Return no-op network client
+		}
+	}
+	return m.network
+}
+
+// PluginConfig returns the plugin-specific configuration
+func (m *MockPluginContext) PluginConfig() map[string]interface{} {
+	return m.pluginConfig
+}
+
+// PluginStorage returns the mock plugin storage
+func (m *MockPluginContext) PluginStorage() PluginStorage {
+	return m.pluginStorage
+}
+
+// RegisterHook registers a hook and tracks it for testing
+func (m *MockPluginContext) RegisterHook(hookType HookType, priority int, handler HookHandler) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	registration := HookRegistration{
+		PluginName: "test-plugin",
+		HookType:   hookType,
+		Priority:   priority,
+		Handler:    handler,
+	}
+	m.RegisteredHooks = append(m.RegisteredHooks, registration)
+
+	if m.hookSystem != nil {
+		return m.hookSystem.RegisterHook("test-plugin", hookType, priority, handler)
+	}
+	return nil
+}
+
+// PublishEvent publishes an event and tracks it for testing
+func (m *MockPluginContext) PublishEvent(event string, data interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	publication := EventPublication{
+		Event: event,
+		Data:  data,
+	}
+	m.PublishedEvents = append(m.PublishedEvents, publication)
+
+	if m.eventBus != nil {
+		return m.eventBus.Publish(event, data)
+	}
+	return nil
+}
+
+// SubscribeEvent subscribes to an event and tracks it for testing
+func (m *MockPluginContext) SubscribeEvent(event string, handler EventHandler) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	subscription := EventSubscription{
+		Event:   event,
+		Handler: handler,
+	}
+	m.SubscribedEvents = append(m.SubscribedEvents, subscription)
+
+	if m.eventBus != nil {
+		return m.eventBus.Subscribe("test-plugin", event, handler)
+	}
+	return nil
+}
+
+// ExportService exports a service and tracks it for testing
+func (m *MockPluginContext) ExportService(name string, service interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.ExportedServices[name] = service
+
+	if m.serviceRegistry != nil {
+		return m.serviceRegistry.Export("test-plugin", name, service)
+	}
+	return nil
+}
+
+// ImportService imports a service and tracks it for testing
+func (m *MockPluginContext) ImportService(pluginName, serviceName string) (interface{}, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	importRecord := ServiceImport{
+		PluginName:  pluginName,
+		ServiceName: serviceName,
+	}
+	m.ImportedServices = append(m.ImportedServices, importRecord)
+
+	if m.serviceRegistry != nil {
+		return m.serviceRegistry.Import(pluginName, serviceName)
+	}
+	return nil, nil
+}
+
+// RegisterMiddleware registers middleware and tracks it for testing
+func (m *MockPluginContext) RegisterMiddleware(name string, handler MiddlewareFunc, priority int, routes []string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	registration := MiddlewareRegistration{
+		PluginName: "test-plugin",
+		Name:       name,
+		Handler:    handler,
+		Priority:   priority,
+		Routes:     routes,
+	}
+	m.RegisteredMiddleware = append(m.RegisteredMiddleware, registration)
+
+	if m.middlewareRegistry != nil {
+		return m.middlewareRegistry.Register("test-plugin", name, handler, priority, routes)
+	}
+	return nil
+}
+
+// UnregisterMiddleware unregisters middleware
+func (m *MockPluginContext) UnregisterMiddleware(name string) error {
+	if m.middlewareRegistry != nil {
+		return m.middlewareRegistry.Unregister("test-plugin", name)
+	}
+	return nil
+}
+
+// SetRouter sets a custom router for testing
+func (m *MockPluginContext) SetRouter(router RouterEngine) {
+	m.router = router
+}
+
+// SetLogger sets a custom logger for testing
+func (m *MockPluginContext) SetLogger(logger Logger) {
+	m.logger = logger
+}
+
+// SetMetrics sets a custom metrics collector for testing
+func (m *MockPluginContext) SetMetrics(metrics MetricsCollector) {
+	m.metrics = metrics
+}
+
+// SetDatabase sets a custom database manager for testing
+func (m *MockPluginContext) SetDatabase(database DatabaseManager) {
+	m.database = database
+}
+
+// SetCache sets a custom cache manager for testing
+func (m *MockPluginContext) SetCache(cache CacheManager) {
+	m.cache = cache
+}
+
+// SetConfig sets a custom config manager for testing
+func (m *MockPluginContext) SetConfig(config ConfigManager) {
+	m.config = config
+}
+
+// SetFileSystem sets a custom file manager for testing
+func (m *MockPluginContext) SetFileSystem(fileSystem FileManager) {
+	m.fileSystem = fileSystem
+}
+
+// SetNetwork sets a custom network client for testing
+func (m *MockPluginContext) SetNetwork(network NetworkClient) {
+	m.network = network
+}
+
+// ============================================================================
+// Mock Supporting Systems
+// ============================================================================
+
+// MockPluginStorage is a simple in-memory plugin storage for testing
+type MockPluginStorage struct {
+	data map[string]interface{}
+	mu   sync.RWMutex
+}
+
+// NewMockPluginStorage creates a new mock plugin storage
+func NewMockPluginStorage() *MockPluginStorage {
+	return &MockPluginStorage{
+		data: make(map[string]interface{}),
+	}
+}
+
+func (s *MockPluginStorage) Set(key string, value interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = value
+	return nil
+}
+
+func (s *MockPluginStorage) Get(key string) (interface{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, exists := s.data[key]
+	if !exists {
+		return nil, fmt.Errorf("key not found: %s", key)
+	}
+	return value, nil
+}
+
+func (s *MockPluginStorage) Delete(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, key)
+	return nil
+}
+
+func (s *MockPluginStorage) List() ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	keys := make([]string, 0, len(s.data))
+	for key := range s.data {
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+func (s *MockPluginStorage) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data = make(map[string]interface{})
+	return nil
+}
+
+// MockHookSystem is a simple hook system for testing
+type MockHookSystem struct {
+	hooks map[string][]HookRegistration
+	mu    sync.RWMutex
+}
+
+// NewMockHookSystem creates a new mock hook system
+func NewMockHookSystem() *MockHookSystem {
+	return &MockHookSystem{
+		hooks: make(map[string][]HookRegistration),
+	}
+}
+
+func (h *MockHookSystem) RegisterHook(pluginName string, hookType HookType, priority int, handler HookHandler) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	key := string(hookType)
+	registration := HookRegistration{
+		PluginName: pluginName,
+		HookType:   hookType,
+		Priority:   priority,
+		Handler:    handler,
+	}
+	h.hooks[key] = append(h.hooks[key], registration)
+	return nil
+}
+
+func (h *MockHookSystem) UnregisterHook(pluginName string, hookType HookType) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	key := string(hookType)
+	hooks := h.hooks[key]
+	filtered := make([]HookRegistration, 0)
+	for _, hook := range hooks {
+		if hook.PluginName != pluginName {
+			filtered = append(filtered, hook)
+		}
+	}
+	h.hooks[key] = filtered
+	return nil
+}
+
+func (h *MockHookSystem) UnregisterAll(pluginName string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for key, hooks := range h.hooks {
+		filtered := make([]HookRegistration, 0)
+		for _, hook := range hooks {
+			if hook.PluginName != pluginName {
+				filtered = append(filtered, hook)
+			}
+		}
+		h.hooks[key] = filtered
+	}
+	return nil
+}
+
+func (h *MockHookSystem) ExecuteHooks(hookType HookType, ctx Context) error {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	key := string(hookType)
+	hooks := h.hooks[key]
+
+	// Create a simple hook context
+	hookCtx := &mockHookContext{
+		ctx:      ctx,
+		hookType: hookType,
+		data:     make(map[string]interface{}),
+	}
+
+	for _, hook := range hooks {
+		if hookCtx.IsSkipped() {
+			break
+		}
+		if err := hook.Handler(hookCtx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mockHookContext is a simple implementation of HookContext for testing
+type mockHookContext struct {
+	ctx        Context
+	hookType   HookType
+	pluginName string
+	data       map[string]interface{}
+	skipped    bool
+	mu         sync.RWMutex
+}
+
+func (h *mockHookContext) Context() Context {
+	return h.ctx
+}
+
+func (h *mockHookContext) HookType() HookType {
+	return h.hookType
+}
+
+func (h *mockHookContext) PluginName() string {
+	return h.pluginName
+}
+
+func (h *mockHookContext) Set(key string, value interface{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.data[key] = value
+}
+
+func (h *mockHookContext) Get(key string) interface{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.data[key]
+}
+
+func (h *mockHookContext) Skip() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.skipped = true
+}
+
+func (h *mockHookContext) IsSkipped() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.skipped
+}
+
+func (h *MockHookSystem) ListHooks(hookType HookType) []HookRegistration {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	key := string(hookType)
+	return h.hooks[key]
+}
+
+// MockEventBus is a simple event bus for testing
+type MockEventBus struct {
+	subscriptions map[string]map[string]EventHandler // event -> pluginName -> handler
+	mu            sync.RWMutex
+}
+
+// NewMockEventBus creates a new mock event bus
+func NewMockEventBus() *MockEventBus {
+	return &MockEventBus{
+		subscriptions: make(map[string]map[string]EventHandler),
+	}
+}
+
+func (e *MockEventBus) Publish(event string, data interface{}) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	handlers, exists := e.subscriptions[event]
+	if !exists {
+		return nil
+	}
+
+	evt := Event{
+		Name:      event,
+		Data:      data,
+		Source:    "test",
+		Timestamp: time.Now(),
+	}
+
+	for _, handler := range handlers {
+		if err := handler(evt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *MockEventBus) Subscribe(pluginName, event string, handler EventHandler) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if _, exists := e.subscriptions[event]; !exists {
+		e.subscriptions[event] = make(map[string]EventHandler)
+	}
+	e.subscriptions[event][pluginName] = handler
+	return nil
+}
+
+func (e *MockEventBus) Unsubscribe(pluginName, event string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if handlers, exists := e.subscriptions[event]; exists {
+		delete(handlers, pluginName)
+		if len(handlers) == 0 {
+			delete(e.subscriptions, event)
+		}
+	}
+	return nil
+}
+
+func (e *MockEventBus) UnregisterAll(pluginName string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for event, handlers := range e.subscriptions {
+		delete(handlers, pluginName)
+		if len(handlers) == 0 {
+			delete(e.subscriptions, event)
+		}
+	}
+	return nil
+}
+
+func (e *MockEventBus) ListSubscriptions(event string) []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	handlers, exists := e.subscriptions[event]
+	if !exists {
+		return []string{}
+	}
+
+	plugins := make([]string, 0, len(handlers))
+	for pluginName := range handlers {
+		plugins = append(plugins, pluginName)
+	}
+	return plugins
+}
+
+// MockPermissionChecker checks permissions for testing
+type MockPermissionChecker struct {
+	permissions PluginPermissions
+}
+
+// NewMockPermissionChecker creates a new mock permission checker
+func NewMockPermissionChecker(permissions PluginPermissions) PermissionChecker {
+	return &MockPermissionChecker{
+		permissions: permissions,
+	}
+}
+
+func (m *MockPermissionChecker) CheckPermission(pluginName string, permission string) error {
+	switch permission {
+	case "database":
+		if !m.permissions.AllowDatabase {
+			return fmt.Errorf("permission denied: database access not allowed")
+		}
+	case "cache":
+		if !m.permissions.AllowCache {
+			return fmt.Errorf("permission denied: cache access not allowed")
+		}
+	case "config":
+		if !m.permissions.AllowConfig {
+			return fmt.Errorf("permission denied: config access not allowed")
+		}
+	case "router":
+		if !m.permissions.AllowRouter {
+			return fmt.Errorf("permission denied: router access not allowed")
+		}
+	case "filesystem":
+		if !m.permissions.AllowFileSystem {
+			return fmt.Errorf("permission denied: filesystem access not allowed")
+		}
+	case "network":
+		if !m.permissions.AllowNetwork {
+			return fmt.Errorf("permission denied: network access not allowed")
+		}
+	case "exec":
+		if !m.permissions.AllowExec {
+			return fmt.Errorf("permission denied: exec access not allowed")
+		}
+	default:
+		if m.permissions.CustomPermissions != nil {
+			if allowed, exists := m.permissions.CustomPermissions[permission]; exists && allowed {
+				return nil
+			}
+		}
+		return fmt.Errorf("permission denied: unknown permission %s", permission)
+	}
+	return nil
+}
+
+func (m *MockPermissionChecker) GrantPermission(pluginName string, permission string) error {
+	return nil
+}
+
+func (m *MockPermissionChecker) RevokePermission(pluginName string, permission string) error {
+	return nil
+}
+
+func (m *MockPermissionChecker) GetPermissions(pluginName string) PluginPermissions {
+	return m.permissions
+}
+
+// ============================================================================
+// Test Helper Functions
+// ============================================================================
+
+// AssertPluginInitialized checks if a plugin initialized successfully
+func AssertPluginInitialized(t interface {
+	Errorf(format string, args ...interface{})
+}, plugin Plugin, ctx PluginContext) {
+	if err := plugin.Initialize(ctx); err != nil {
+		t.Errorf("Plugin initialization failed: %v", err)
+	}
+}
+
+// AssertPluginLifecycle tests the complete plugin lifecycle
+func AssertPluginLifecycle(t interface {
+	Errorf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
+}, plugin Plugin, ctx PluginContext) {
+	// Initialize
+	if err := plugin.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+
+	// Start
+	if err := plugin.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Stop
+	if err := plugin.Stop(); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+
+	// Cleanup
+	if err := plugin.Cleanup(); err != nil {
+		t.Fatalf("Cleanup failed: %v", err)
+	}
+}
+
+// AssertHookRegistered checks if a hook was registered
+func AssertHookRegistered(t interface {
+	Errorf(format string, args ...interface{})
+}, ctx *MockPluginContext, hookType HookType) {
+	for _, hook := range ctx.RegisteredHooks {
+		if hook.HookType == hookType {
+			return
+		}
+	}
+	t.Errorf("Hook %s was not registered", hookType)
+}
+
+// AssertEventPublished checks if an event was published
+func AssertEventPublished(t interface {
+	Errorf(format string, args ...interface{})
+}, ctx *MockPluginContext, event string) {
+	for _, pub := range ctx.PublishedEvents {
+		if pub.Event == event {
+			return
+		}
+	}
+	t.Errorf("Event %s was not published", event)
+}
+
+// AssertServiceExported checks if a service was exported
+func AssertServiceExported(t interface {
+	Errorf(format string, args ...interface{})
+}, ctx *MockPluginContext, serviceName string) {
+	if _, exists := ctx.ExportedServices[serviceName]; !exists {
+		t.Errorf("Service %s was not exported", serviceName)
+	}
+}
+
+// AssertMiddlewareRegistered checks if middleware was registered
+func AssertMiddlewareRegistered(t interface {
+	Errorf(format string, args ...interface{})
+}, ctx *MockPluginContext, middlewareName string) {
+	for _, mw := range ctx.RegisteredMiddleware {
+		if mw.Name == middlewareName {
+			return
+		}
+	}
+	t.Errorf("Middleware %s was not registered", middlewareName)
 }

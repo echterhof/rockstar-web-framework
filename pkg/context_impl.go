@@ -31,6 +31,9 @@ type contextImpl struct {
 	// User context
 	user   *User
 	tenant *Tenant
+
+	// Plugin context extension storage (request-scoped)
+	values map[string]interface{}
 }
 
 // Request returns the request object
@@ -160,6 +163,8 @@ func (c *contextImpl) WithTimeout(timeout time.Duration) Context {
 	ctx, _ := context.WithTimeout(c.Context(), timeout)
 	newCtx := *c
 	newCtx.ctx = ctx
+	// Share the same values map (same request)
+	newCtx.values = c.values
 	return &newCtx
 }
 
@@ -168,6 +173,8 @@ func (c *contextImpl) WithCancel() (Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(c.Context())
 	newCtx := *c
 	newCtx.ctx = ctx
+	// Share the same values map (same request)
+	newCtx.values = c.values
 	return &newCtx, cancel
 }
 
@@ -309,6 +316,7 @@ func NewContext(req *Request, resp ResponseWriter, ctx context.Context) Context 
 		params:   req.Params,
 		query:    req.Query,
 		headers:  make(map[string]string),
+		values:   make(map[string]interface{}),
 	}
 }
 
@@ -402,4 +410,23 @@ func (c *contextImpl) GetQueryParamBool(name string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("invalid boolean value: %s", value)
+}
+
+// Set stores a custom value in the request context
+// This allows plugins to share data with handlers and other plugins
+func (c *contextImpl) Set(key string, value interface{}) {
+	if c.values == nil {
+		c.values = make(map[string]interface{})
+	}
+	c.values[key] = value
+}
+
+// Get retrieves a custom value from the request context
+// Returns the value and true if found, nil and false otherwise
+func (c *contextImpl) Get(key string) (interface{}, bool) {
+	if c.values == nil {
+		return nil, false
+	}
+	value, ok := c.values[key]
+	return value, ok
 }

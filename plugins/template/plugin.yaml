@@ -1,0 +1,98 @@
+# ============================================================================
+# Plugin Manifest Template
+# ============================================================================
+#
+# This manifest file describes your plugin and its requirements.
+# The framework uses this file to validate dependencies and permissions.
+#
+# Copy this file and modify it for your plugin.
+#
+# ============================================================================
+
+# Plugin identification
+name: template-plugin
+version: 1.0.0
+description: A template plugin for creating new plugins
+author: Your Name <your.email@example.com>
+
+# Framework compatibility
+# Specify the minimum framework version required
+framework:
+  version: ">=1.0.0"
+
+# Plugin dependencies
+# List other plugins that this plugin depends on
+dependencies: []
+  # Example:
+  # - name: other-plugin
+  #   version: ">=1.0.0"
+  #   optional: false
+
+# Required permissions
+# Declare what framework services your plugin needs access to
+permissions:
+  database: false    # Access to database operations
+  cache: false       # Access to cache operations
+  router: false      # Access to router (register routes, middleware)
+  config: false      # Access to framework configuration
+  filesystem: false  # Access to filesystem operations
+  network: false     # Access to network operations (HTTP clients, etc.)
+  exec: false        # Access to execute external commands
+
+# Configuration schema
+# Define the configuration options your plugin accepts
+config: {}
+  # Example:
+  # api_key:
+  #   type: string
+  #   required: true
+  #   description: API key for external service
+  # timeout:
+  #   type: duration
+  #   default: "30s"
+  #   description: Request timeout
+  # enabled:
+  #   type: bool
+  #   default: true
+  #   description: Enable plugin functionality
+  # max_retries:
+  #   type: int
+  #   default: 3
+  #   description: Maximum retry attempts
+
+# Hook registrations
+# Declare what hooks your plugin registers
+hooks: []
+  # Example:
+  # - type: startup
+  #   priority: 100
+  # - type: pre_request
+  #   priority: 200
+  # - type: post_request
+  #   priority: 200
+  # - type: shutdown
+  #   priority: 100
+
+# Event subscriptions and publications
+# Declare what events your plugin publishes and subscribes to
+events:
+  publishes: []
+    # Example:
+    # - template.started
+    # - template.stopped
+    # - template.action_completed
+  subscribes: []
+    # Example:
+    # - user.created
+    # - user.updated
+    # - cache.invalidate
+
+# Exported services
+# Declare services that other plugins can import
+exports: []
+  # Example:
+  # - name: TemplateService
+  #   description: Service for doing X
+  #   methods:
+  #     - DoSomething() string
+  #     - ProcessData(data string) error

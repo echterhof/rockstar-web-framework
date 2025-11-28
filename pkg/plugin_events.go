@@ -164,3 +164,32 @@ func (e *eventBusImpl) ListSubscriptions(eventName string) []string {
 
 	return names
 }
+
+// UnregisterAll removes all event subscriptions for a plugin
+func (e *eventBusImpl) UnregisterAll(pluginName string) error {
+	if pluginName == "" {
+		return fmt.Errorf("plugin name cannot be empty")
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	removedCount := 0
+	for eventName, subscribers := range e.subscriptions {
+		if _, exists := subscribers[pluginName]; exists {
+			delete(subscribers, pluginName)
+			removedCount++
+
+			// Clean up empty subscription maps
+			if len(subscribers) == 0 {
+				delete(e.subscriptions, eventName)
+			}
+		}
+	}
+
+	if e.logger != nil {
+		e.logger.Info(fmt.Sprintf("Unregistered %d event subscriptions for plugin %s", removedCount, pluginName))
+	}
+
+	return nil
+}
