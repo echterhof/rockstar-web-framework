@@ -32,6 +32,10 @@ type Framework struct {
 	// Plugin system
 	pluginManager PluginManager
 
+	// File and network
+	fileManager   FileManager
+	networkClient NetworkClient
+
 	// Middleware
 	globalMiddleware []MiddlewareFunc
 
@@ -78,6 +82,9 @@ type FrameworkConfig struct {
 	// Plugin configuration
 	PluginConfigPath string
 	EnablePlugins    bool
+
+	// File system configuration
+	FileSystemRoot string // Root directory for file operations (defaults to current directory)
 }
 
 // New creates a new Framework instance with the given configuration
@@ -164,6 +171,17 @@ func New(config FrameworkConfig) (*Framework, error) {
 	serverMgr := NewServerManager()
 	f.serverManager = serverMgr
 
+	// Initialize file manager
+	fsRoot := config.FileSystemRoot
+	if fsRoot == "" {
+		fsRoot = "."
+	}
+	vfs := NewOSFileSystem(fsRoot)
+	f.fileManager = NewFileManager(vfs)
+
+	// Initialize network client
+	f.networkClient = NewNetworkClient()
+
 	// Initialize plugin system if enabled
 	if config.EnablePlugins {
 		// Create plugin system components
@@ -174,7 +192,6 @@ func New(config FrameworkConfig) (*Framework, error) {
 		permissionChecker := NewPermissionChecker(logger)
 
 		// Create plugin manager
-		// TODO: Add FileManager and NetworkClient to framework
 		pluginMgr := NewPluginManager(
 			pluginRegistry,
 			hookSystem,
@@ -186,8 +203,8 @@ func New(config FrameworkConfig) (*Framework, error) {
 			dbMgr,
 			f.cache,
 			f.config,
-			nil,                // fileSystem - TODO: implement
-			NewNetworkClient(), // network client
+			f.fileManager,
+			f.networkClient,
 		)
 		f.pluginManager = pluginMgr
 
@@ -495,6 +512,16 @@ func (f *Framework) Proxy() ProxyManager {
 // PluginManager returns the framework's plugin manager
 func (f *Framework) PluginManager() PluginManager {
 	return f.pluginManager
+}
+
+// FileManager returns the framework's file manager
+func (f *Framework) FileManager() FileManager {
+	return f.fileManager
+}
+
+// NetworkClient returns the framework's network client
+func (f *Framework) NetworkClient() NetworkClient {
+	return f.networkClient
 }
 
 // LoadPlugin is deprecated for compile-time plugins
