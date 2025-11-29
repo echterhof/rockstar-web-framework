@@ -1,412 +1,536 @@
-# Getting Started with Rockstar Web Framework
+---
+title: "Getting Started"
+description: "Quick start guide for building your first application with Rockstar"
+category: "guide"
+tags: ["getting-started", "tutorial", "quickstart"]
+version: "1.0.0"
+last_updated: "2025-11-28"
+related:
+  - "INSTALLATION.md"
+  - "guides/configuration.md"
+  - "guides/routing.md"
+---
 
-This guide will help you get started with the Rockstar Web Framework, from installation to building your first application.
+# Getting Started
 
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Your First Application](#your-first-application)
-4. [Understanding the Framework](#understanding-the-framework)
-5. [Next Steps](#next-steps)
+Welcome to the Rockstar Web Framework! This tutorial will guide you through building your first web application. By the end, you'll understand the core concepts and be ready to build production-ready applications.
 
 ## Prerequisites
 
-Before you begin, ensure you have the following installed:
+Before starting, make sure you have:
 
-- **Go 1.25 or higher**: [Download Go](https://golang.org/dl/)
-- **Database** (optional): MySQL, PostgreSQL, MSSQL, or SQLite
-- **Redis** (optional): For distributed caching
+- Go 1.25 or higher installed ([Installation Guide](INSTALLATION.md))
+- Basic familiarity with Go programming
+- A text editor or IDE
 
-## Installation
+## Your First Application: Hello World
 
-### 1. Create a New Go Project
+Let's build a minimal web application that responds to HTTP requests.
+
+### Step 1: Create a New Project
 
 ```bash
-mkdir my-rockstar-app
-cd my-rockstar-app
-go mod init my-rockstar-app
+mkdir hello-rockstar
+cd hello-rockstar
+go mod init hello-rockstar
 ```
 
-### 2. Install the Framework
+### Step 2: Install Rockstar
 
 ```bash
 go get github.com/echterhof/rockstar-web-framework/pkg
 ```
 
-### 3. Install Database Driver (Optional)
+### Step 3: Create Your Application
 
-```bash
-# For PostgreSQL
-go get github.com/lib/pq
-
-# For MySQL
-go get github.com/go-sql-driver/mysql
-
-# For SQLite
-go get github.com/mattn/go-sqlite3
-```
-
-## Your First Application
-
-### Step 1: Create main.go
-
-Create a file named `main.go` with the following content:
+Create a file named `main.go`:
 
 ```go
 package main
 
 import (
     "log"
-    "time"
-    "github.com/rockstar-framework/pkg"
+    "github.com/echterhof/rockstar-web-framework/pkg"
 )
 
 func main() {
-    // Create framework configuration
+    // Create a minimal configuration
     config := pkg.FrameworkConfig{
         ServerConfig: pkg.ServerConfig{
-            ReadTimeout:  10 * time.Second,
-            WriteTimeout: 10 * time.Second,
-            EnableHTTP1:  true,
-            EnableHTTP2:  true,
-        },
-        DatabaseConfig: pkg.DatabaseConfig{
-            Driver:   "sqlite",
-            Database: "app.db",
+            EnableHTTP1: true,  // Enable HTTP/1.1 support
         },
     }
-    
-    // Create framework instance
+
+    // Initialize the framework
     app, err := pkg.New(config)
     if err != nil {
         log.Fatalf("Failed to create framework: %v", err)
     }
-    
-    // Get router
+
+    // Get the router
     router := app.Router()
-    
-    // Define a simple route
+
+    // Define a route handler
     router.GET("/", func(ctx pkg.Context) error {
         return ctx.JSON(200, map[string]interface{}{
-            "message": "Welcome to Rockstar! 🎸",
-            "status":  "running",
+            "message": "Hello, Rockstar! 🎸",
         })
     })
-    
-    // Start server
-    log.Println("Server starting on :8080")
+
+    // Start the server
+    log.Println("Server starting on http://localhost:8080")
     if err := app.Listen(":8080"); err != nil {
         log.Fatalf("Server error: %v", err)
     }
 }
 ```
 
-### Step 2: Run Your Application
+### Step 4: Run Your Application
 
 ```bash
 go run main.go
 ```
 
-### Step 3: Test Your Application
+You should see:
+```
+Server starting on http://localhost:8080
+```
 
-Open your browser or use curl:
+### Step 5: Test Your Application
+
+Open a new terminal and test your endpoint:
 
 ```bash
 curl http://localhost:8080/
 ```
 
 You should see:
-
 ```json
-{
-  "message": "Welcome to Rockstar! 🎸",
-  "status": "running"
+{"message":"Hello, Rockstar! 🎸"}
+```
+
+Congratulations! You've built your first Rockstar application! 🎉
+
+## Understanding the Core Concepts
+
+Now let's break down what's happening in your application and explore the key concepts.
+
+### 1. Framework Configuration
+
+The `FrameworkConfig` struct controls how your application behaves:
+
+```go
+config := pkg.FrameworkConfig{
+    ServerConfig: pkg.ServerConfig{
+        EnableHTTP1: true,  // Enable HTTP/1.1
+        EnableHTTP2: true,  // Enable HTTP/2 (optional)
+    },
+    DatabaseConfig: pkg.DatabaseConfig{
+        Driver:   "sqlite",
+        Database: "myapp.db",
+    },
+    // ... more configuration options
 }
 ```
 
-## Understanding the Framework
+**Key configuration areas:**
+- **ServerConfig**: HTTP protocols, timeouts, connection limits
+- **DatabaseConfig**: Database connection settings
+- **CacheConfig**: Caching behavior
+- **SessionConfig**: Session management and security
 
-### Framework Architecture
+Most settings have sensible defaults, so you only need to specify what you want to change.
 
-The Rockstar Web Framework follows a modular architecture:
+[Learn more about configuration →](guides/configuration.md)
 
-```
-┌─────────────────────────────────────┐
-│         Your Application            │
-├─────────────────────────────────────┤
-│  Routes │ Middleware │ Handlers     │
-├─────────────────────────────────────┤
-│         Framework Core              │
-│  Context │ Router │ Security        │
-├─────────────────────────────────────┤
-│         Protocol Layer              │
-│  HTTP/1 │ HTTP/2 │ QUIC │ WebSocket│
-├─────────────────────────────────────┤
-│          Data Layer                 │
-│  Database │ Cache │ Session         │
-└─────────────────────────────────────┘
-```
+### 2. The Framework Instance
 
-### Key Concepts
-
-#### 1. Framework Instance
-
-The `Framework` struct is your application's entry point:
+The `Framework` is the central object that manages your application:
 
 ```go
 app, err := pkg.New(config)
 ```
 
-It wires together all components:
-- Server manager
-- Router
-- Database
-- Cache
-- Session manager
-- Security manager
-- Monitoring
-- And more...
+The framework provides access to:
+- **Router**: Route registration and HTTP handling
+- **Database**: Database operations
+- **Cache**: Caching operations
+- **Security**: Authentication and authorization
+- **Sessions**: Session management
+- **Plugins**: Plugin system
 
-#### 2. Context
+### 3. The Router
 
-The `Context` interface is the heart of request handling:
-
-```go
-func handler(ctx pkg.Context) error {
-    // Access request data
-    params := ctx.Params()      // URL parameters
-    query := ctx.Query()        // Query strings
-    headers := ctx.Headers()    // HTTP headers
-    body := ctx.Body()          // Request body
-    
-    // Access framework services
-    db := ctx.DB()              // Database
-    cache := ctx.Cache()        // Cache
-    session := ctx.Session()    // Session
-    config := ctx.Config()      // Configuration
-    i18n := ctx.I18n()          // Internationalization
-    
-    // Send response
-    return ctx.JSON(200, data)
-}
-```
-
-#### 3. Router
-
-The router maps URLs to handlers:
+The `Router` handles HTTP routing and maps URLs to handler functions:
 
 ```go
 router := app.Router()
 
-// HTTP methods
-router.GET("/users", listUsers)
-router.POST("/users", createUser)
-router.PUT("/users/:id", updateUser)
-router.DELETE("/users/:id", deleteUser)
-
-// URL parameters
-router.GET("/users/:id", func(ctx pkg.Context) error {
-    id := ctx.Params()["id"]
-    return ctx.JSON(200, map[string]string{"id": id})
-})
-
-// Query parameters
-router.GET("/search", func(ctx pkg.Context) error {
-    query := ctx.Query()["q"]
-    return ctx.JSON(200, map[string]string{"query": query})
-})
+// Register routes for different HTTP methods
+router.GET("/users", listUsers)           // GET request
+router.POST("/users", createUser)         // POST request
+router.PUT("/users/:id", updateUser)      // PUT request with parameter
+router.DELETE("/users/:id", deleteUser)   // DELETE request
 ```
 
-#### 4. Middleware
+**Supported HTTP methods:**
+- `GET` - Retrieve resources
+- `POST` - Create resources
+- `PUT` - Update resources
+- `DELETE` - Delete resources
+- `PATCH` - Partial updates
+- `HEAD` - Headers only
+- `OPTIONS` - Supported methods
 
-Middleware processes requests before/after handlers:
+[Learn more about routing →](guides/routing.md)
+
+### 4. The Context
+
+The `Context` is passed to every handler and provides access to the request, response, and framework services:
 
 ```go
-// Global middleware
-app.Use(loggingMiddleware)
-
-// Route-specific middleware
-router.GET("/admin", adminHandler, authMiddleware)
-
-// Middleware function
-func loggingMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
-    log.Printf("Request: %s %s", ctx.Request().Method, ctx.Request().Path)
-    return next(ctx)
+func myHandler(ctx pkg.Context) error {
+    // Access request information
+    method := ctx.Request().Method
+    path := ctx.Request().URL.Path
+    
+    // Get URL parameters
+    userID := ctx.Params()["id"]
+    
+    // Get query parameters
+    page := ctx.Query("page")
+    
+    // Access framework services
+    db := ctx.DB()           // Database
+    cache := ctx.Cache()     // Cache
+    session := ctx.Session() // Session
+    
+    // Send responses
+    return ctx.JSON(200, map[string]interface{}{
+        "status": "success",
+    })
 }
 ```
 
-## Building a Real Application
+**Context provides:**
+- Request data (headers, body, parameters)
+- Response methods (JSON, HTML, file, etc.)
+- Framework services (database, cache, session)
+- Request-scoped values
 
-Let's build a simple TODO API:
+[Learn more about Context →](guides/context.md)
+
+### 5. Handler Functions
+
+Handlers are functions that process HTTP requests:
+
+```go
+func myHandler(ctx pkg.Context) error {
+    // Process the request
+    // Return a response or an error
+    return ctx.JSON(200, data)
+}
+```
+
+**Handler signature:**
+```go
+type HandlerFunc func(Context) error
+```
+
+Handlers receive a `Context` and return an `error`. If an error is returned, the framework's error handler processes it.
+
+## Building a More Complete Application
+
+Let's expand our Hello World into a simple user API with multiple routes and features.
+
+### Complete Example
 
 ```go
 package main
 
 import (
+    "fmt"
     "log"
     "time"
-    "github.com/rockstar-framework/pkg"
+    "github.com/echterhof/rockstar-web-framework/pkg"
 )
 
-type Todo struct {
-    ID        int    `json:"id"`
-    Title     string `json:"title"`
-    Completed bool   `json:"completed"`
-}
-
-var todos = []Todo{
-    {ID: 1, Title: "Learn Rockstar Framework", Completed: false},
-    {ID: 2, Title: "Build an API", Completed: false},
-}
-
 func main() {
+    // Configuration
     config := pkg.FrameworkConfig{
         ServerConfig: pkg.ServerConfig{
-            ReadTimeout:  10 * time.Second,
-            WriteTimeout: 10 * time.Second,
-            EnableHTTP1:  true,
-        },
-        DatabaseConfig: pkg.DatabaseConfig{
-            Driver:   "sqlite",
-            Database: "todos.db",
+            EnableHTTP1: true,
+            EnableHTTP2: true,
         },
     }
-    
+
+    // Initialize framework
     app, err := pkg.New(config)
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("Failed to create framework: %v", err)
     }
-    
+
+    // Add middleware for logging
+    app.Use(loggingMiddleware)
+
+    // Get router and register routes
     router := app.Router()
     
-    // List all todos
-    router.GET("/todos", func(ctx pkg.Context) error {
-        return ctx.JSON(200, todos)
-    })
+    // Home endpoint
+    router.GET("/", homeHandler)
     
-    // Get a specific todo
-    router.GET("/todos/:id", func(ctx pkg.Context) error {
-        id := ctx.Params()["id"]
-        for _, todo := range todos {
-            if todo.ID == id {
-                return ctx.JSON(200, todo)
-            }
-        }
-        return ctx.JSON(404, map[string]string{
-            "error": "Todo not found",
-        })
-    })
+    // User API endpoints
+    router.GET("/users", listUsersHandler)
+    router.GET("/users/:id", getUserHandler)
+    router.POST("/users", createUserHandler)
+    router.PUT("/users/:id", updateUserHandler)
+    router.DELETE("/users/:id", deleteUserHandler)
+
+    // Start server
+    log.Println("🎸 Server starting on http://localhost:8080")
+    log.Println("Try: curl http://localhost:8080/")
+    if err := app.Listen(":8080"); err != nil {
+        log.Fatalf("Server error: %v", err)
+    }
+}
+
+// Middleware: Logs all requests
+func loggingMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+    start := time.Now()
     
-    // Create a new todo
-    router.POST("/todos", func(ctx pkg.Context) error {
-        // In production, parse body properly
-        newTodo := Todo{
-            ID:        len(todos) + 1,
-            Title:     "New Todo",
-            Completed: false,
-        }
-        todos = append(todos, newTodo)
-        return ctx.JSON(201, newTodo)
-    })
+    // Log incoming request
+    log.Printf("[%s] %s %s",
+        ctx.Request().Method,
+        ctx.Request().URL.Path,
+        ctx.Request().RemoteAddr,
+    )
     
-    // Update a todo
-    router.PUT("/todos/:id", func(ctx pkg.Context) error {
-        id := ctx.Params()["id"]
-        for i, todo := range todos {
-            if todo.ID == id {
-                todos[i].Completed = !todos[i].Completed
-                return ctx.JSON(200, todos[i])
-            }
-        }
-        return ctx.JSON(404, map[string]string{
-            "error": "Todo not found",
-        })
-    })
+    // Call next handler
+    err := next(ctx)
     
-    // Delete a todo
-    router.DELETE("/todos/:id", func(ctx pkg.Context) error {
-        id := ctx.Params()["id"]
-        for i, todo := range todos {
-            if todo.ID == id {
-                todos = append(todos[:i], todos[i+1:]...)
-                return ctx.JSON(204, nil)
-            }
-        }
-        return ctx.JSON(404, map[string]string{
-            "error": "Todo not found",
-        })
-    })
+    // Log completion time
+    duration := time.Since(start)
+    log.Printf("  Completed in %v", duration)
     
-    log.Println("TODO API starting on :8080")
-    log.Fatal(app.Listen(":8080"))
+    return err
+}
+
+// Handler: Home page
+func homeHandler(ctx pkg.Context) error {
+    return ctx.JSON(200, map[string]interface{}{
+        "message": "Welcome to the User API! 🎸",
+        "version": "1.0.0",
+        "endpoints": []string{
+            "GET /users - List all users",
+            "GET /users/:id - Get a specific user",
+            "POST /users - Create a new user",
+            "PUT /users/:id - Update a user",
+            "DELETE /users/:id - Delete a user",
+        },
+    })
+}
+
+// Handler: List all users
+func listUsersHandler(ctx pkg.Context) error {
+    // In a real app, fetch from database using ctx.DB()
+    users := []map[string]interface{}{
+        {"id": "1", "name": "Alice", "email": "alice@example.com"},
+        {"id": "2", "name": "Bob", "email": "bob@example.com"},
+    }
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "users": users,
+        "count": len(users),
+    })
+}
+
+// Handler: Get a specific user
+func getUserHandler(ctx pkg.Context) error {
+    // Extract URL parameter
+    userID := ctx.Params()["id"]
+    
+    // In a real app, query database using ctx.DB()
+    user := map[string]interface{}{
+        "id":    userID,
+        "name":  "Alice",
+        "email": "alice@example.com",
+    }
+    
+    return ctx.JSON(200, user)
+}
+
+// Handler: Create a new user
+func createUserHandler(ctx pkg.Context) error {
+    // In a real app:
+    // 1. Parse request body: ctx.BindJSON(&user)
+    // 2. Validate input
+    // 3. Save to database: ctx.DB().Exec(...)
+    // 4. Return created resource
+    
+    return ctx.JSON(201, map[string]interface{}{
+        "message": "User created successfully",
+        "id":      "3",
+    })
+}
+
+// Handler: Update a user
+func updateUserHandler(ctx pkg.Context) error {
+    userID := ctx.Params()["id"]
+    
+    // In a real app:
+    // 1. Parse request body
+    // 2. Validate input
+    // 3. Update in database
+    // 4. Return updated resource
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "message": fmt.Sprintf("User %s updated successfully", userID),
+    })
+}
+
+// Handler: Delete a user
+func deleteUserHandler(ctx pkg.Context) error {
+    userID := ctx.Params()["id"]
+    
+    // In a real app:
+    // 1. Check if user exists
+    // 2. Delete from database
+    // 3. Return confirmation
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "message": fmt.Sprintf("User %s deleted successfully", userID),
+    })
 }
 ```
 
-### Test the API
+### Testing the Complete Application
 
 ```bash
-# List todos
-curl http://localhost:8080/todos
+# List all users
+curl http://localhost:8080/users
 
-# Get a specific todo
-curl http://localhost:8080/todos/1
+# Get a specific user
+curl http://localhost:8080/users/1
 
-# Create a todo
-curl -X POST http://localhost:8080/todos
+# Create a user
+curl -X POST http://localhost:8080/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Charlie","email":"charlie@example.com"}'
 
-# Update a todo
-curl -X PUT http://localhost:8080/todos/1
+# Update a user
+curl -X PUT http://localhost:8080/users/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice Updated","email":"alice.new@example.com"}'
 
-# Delete a todo
-curl -X DELETE http://localhost:8080/todos/1
+# Delete a user
+curl -X DELETE http://localhost:8080/users/1
 ```
 
-## Next Steps
+## Key Concepts Explained
 
-Now that you have a basic understanding, explore these topics:
+### Middleware
 
-### 1. Add Middleware
+Middleware functions run before your handlers and can:
+- Log requests
+- Authenticate users
+- Validate input
+- Handle errors
+- Modify requests/responses
 
-Learn about logging, authentication, and custom middleware:
-- [Middleware Guide](middleware_implementation.md)
+```go
+func myMiddleware(ctx pkg.Context, next pkg.HandlerFunc) error {
+    // Code before handler
+    log.Println("Before handler")
+    
+    // Call the next handler
+    err := next(ctx)
+    
+    // Code after handler
+    log.Println("After handler")
+    
+    return err
+}
 
-### 2. Database Integration
+// Register middleware globally
+app.Use(myMiddleware)
+```
 
-Connect to a real database and perform CRUD operations:
-- [Database Guide](database_implementation.md)
+[Learn more about middleware →](guides/middleware.md)
 
-### 3. Session Management
+### URL Parameters
 
-Implement user sessions and authentication:
-- [Session Guide](session_implementation.md)
+Extract dynamic values from URLs:
 
-### 4. Security Features
+```go
+// Route with parameter
+router.GET("/users/:id", func(ctx pkg.Context) error {
+    userID := ctx.Params()["id"]  // Extract :id parameter
+    return ctx.JSON(200, map[string]interface{}{
+        "user_id": userID,
+    })
+})
+```
 
-Add authentication, authorization, and security headers:
-- [Security Guide](security_implementation.md)
+### Query Parameters
 
-### 5. Multi-Protocol APIs
+Access URL query strings:
 
-Build REST, GraphQL, gRPC, and SOAP APIs:
-- [REST API Guide](rest_api_implementation.md)
-- [GraphQL Guide](graphql_implementation.md)
-- [gRPC Guide](grpc_implementation.md)
+```go
+// URL: /search?q=golang&page=2
+router.GET("/search", func(ctx pkg.Context) error {
+    query := ctx.Query("q")      // "golang"
+    page := ctx.Query("page")    // "2"
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "query": query,
+        "page":  page,
+    })
+})
+```
 
-### 6. Plugin System
+### Request Body Parsing
 
-Extend the framework with plugins:
-- [Plugin System Overview](PLUGIN_SYSTEM.md)
-- [Plugin Development Guide](PLUGIN_DEVELOPMENT.md)
+Parse JSON request bodies:
 
-### 7. Advanced Features
+```go
+type User struct {
+    Name  string `json:"name"`
+    Email string `json:"email"`
+}
 
-Explore advanced features:
-- [Multi-Tenancy](multi_server_implementation.md)
-- [Caching](cache_implementation.md)
-- [Internationalization](i18n_implementation.md)
-- [Monitoring](monitoring_implementation.md)
-- [Forward Proxy](proxy_implementation.md)
+router.POST("/users", func(ctx pkg.Context) error {
+    var user User
+    if err := ctx.BindJSON(&user); err != nil {
+        return ctx.JSON(400, map[string]interface{}{
+            "error": "Invalid JSON",
+        })
+    }
+    
+    // Use the parsed user data
+    return ctx.JSON(201, user)
+})
+```
+
+### Response Types
+
+Send different response types:
+
+```go
+// JSON response
+ctx.JSON(200, data)
+
+// HTML response
+ctx.HTML(200, "<h1>Hello</h1>")
+
+// Plain text
+ctx.String(200, "Hello, World!")
+
+// File download
+ctx.File("/path/to/file.pdf")
+
+// Redirect
+ctx.Redirect(302, "/new-location")
+```
 
 ## Common Patterns
 
@@ -414,317 +538,109 @@ Explore advanced features:
 
 ```go
 router.GET("/users/:id", func(ctx pkg.Context) error {
-    id := ctx.Params()["id"]
+    userID := ctx.Params()["id"]
     
-    user, err := fetchUser(id)
+    // Query database
+    user, err := getUserFromDB(ctx.DB(), userID)
     if err != nil {
-        return ctx.JSON(500, map[string]string{
-            "error": "Failed to fetch user",
-        })
-    }
-    
-    if user == nil {
-        return ctx.JSON(404, map[string]string{
-            "error": "User not found",
-        })
+        // Return error - framework's error handler will process it
+        return err
     }
     
     return ctx.JSON(200, user)
 })
-```
 
-### Request Validation
-
-```go
-router.POST("/users", func(ctx pkg.Context) error {
-    // Validate required fields
-    name := ctx.FormValue("name")
-    if name == "" {
-        return ctx.JSON(400, map[string]string{
-            "error": "Name is required",
-        })
-    }
-    
-    // Create user
-    user := createUser(name)
-    return ctx.JSON(201, user)
+// Set custom error handler
+app.SetErrorHandler(func(ctx pkg.Context, err error) error {
+    log.Printf("Error: %v", err)
+    return ctx.JSON(500, map[string]interface{}{
+        "error": err.Error(),
+    })
 })
 ```
 
-### Using Database
+### Route Groups
+
+Organize related routes:
 
 ```go
-router.GET("/users", func(ctx pkg.Context) error {
-    db := ctx.DB()
-    
-    rows, err := db.Query("SELECT id, name, email FROM users")
-    if err != nil {
-        return ctx.JSON(500, map[string]string{
-            "error": "Database error",
-        })
-    }
-    defer rows.Close()
-    
-    var users []User
-    for rows.Next() {
-        var user User
-        rows.Scan(&user.ID, &user.Name, &user.Email)
-        users = append(users, user)
-    }
-    
-    return ctx.JSON(200, users)
+// API v1 routes
+v1 := router.Group("/api/v1")
+v1.GET("/users", listUsers)
+v1.POST("/users", createUser)
+
+// API v2 routes
+v2 := router.Group("/api/v2")
+v2.GET("/users", listUsersV2)
+v2.POST("/users", createUserV2)
+```
+
+### Lifecycle Hooks
+
+Run code during application lifecycle:
+
+```go
+// Startup hook - runs when server starts
+app.RegisterStartupHook(func(ctx context.Context) error {
+    log.Println("Server starting...")
+    // Initialize resources
+    return nil
+})
+
+// Shutdown hook - runs during graceful shutdown
+app.RegisterShutdownHook(func(ctx context.Context) error {
+    log.Println("Server shutting down...")
+    // Cleanup resources
+    return nil
 })
 ```
 
-## Troubleshooting
+## Next Steps
 
-### Port Already in Use
+Now that you understand the basics, explore these topics to build more advanced applications:
 
-If you see "address already in use", change the port:
+### Core Features
+- [Configuration Guide](guides/configuration.md) - Learn about all configuration options
+- [Routing Guide](guides/routing.md) - Advanced routing patterns and techniques
+- [Middleware Guide](guides/middleware.md) - Create and use middleware effectively
+- [Context Guide](guides/context.md) - Master the Context interface
 
-```go
-app.Listen(":8081")  // Use a different port
-```
+### Data & Storage
+- [Database Guide](guides/database.md) - Work with databases (PostgreSQL, MySQL, SQLite, MSSQL)
+- [Caching Guide](guides/caching.md) - Implement caching strategies
+- [Sessions Guide](guides/sessions.md) - Manage user sessions
 
-### Database Connection Failed
+### Security
+- [Security Guide](guides/security.md) - Authentication, authorization, and security best practices
 
-Check your database configuration:
+### Advanced Features
+- [Multi-Tenancy Guide](guides/multi-tenancy.md) - Build multi-tenant applications
+- [Internationalization Guide](guides/i18n.md) - Support multiple languages
+- [Plugin System Guide](guides/plugins.md) - Extend the framework with plugins
+- [WebSockets Guide](guides/websockets.md) - Real-time communication
 
-```go
-DatabaseConfig{
-    Driver:   "postgres",
-    Host:     "localhost",
-    Port:     5432,
-    Database: "mydb",
-    Username: "user",
-    Password: "pass",
-}
-```
+### Protocols & APIs
+- [Protocols Guide](guides/protocols.md) - HTTP/1, HTTP/2, and QUIC
+- [API Styles Guide](guides/api-styles.md) - REST, GraphQL, gRPC, and SOAP
 
-### Import Errors
+### Operations
+- [Monitoring Guide](guides/monitoring.md) - Metrics and observability
+- [Performance Guide](guides/performance.md) - Optimize your application
+- [Deployment Guide](guides/deployment.md) - Deploy to production
 
-Make sure you've installed all dependencies:
-
-```bash
-go mod tidy
-```
+### Examples
+- [Complete Examples](examples/README.md) - Explore full example applications
+- [REST API Example](examples/rest-api.md) - Build a complete REST API
+- [Full-Featured App](examples/full-featured-app.md) - See all features in action
 
 ## Getting Help
 
-- **Documentation**: Check the [docs/](../docs/) directory
-- **Examples**: See [examples/](../examples/) for working code
-- **Issues**: Report bugs on GitHub Issues
-- **Community**: Join discussions on GitHub Discussions
+- **Documentation**: Browse the [complete documentation](README.md)
+- **Examples**: Check out the [examples directory](../examples/)
+- **Troubleshooting**: See [common errors and solutions](troubleshooting/common-errors.md)
+- **FAQ**: Read the [frequently asked questions](troubleshooting/faq.md)
 
-## Using Plugins
+## Navigation
 
-The Rockstar Framework includes a powerful plugin system for extending functionality.
-
-### Loading Plugins from Configuration
-
-```go
-package main
-
-import (
-    "log"
-    "time"
-    "github.com/rockstar-framework/pkg"
-)
-
-func main() {
-    config := pkg.FrameworkConfig{
-        ServerConfig: pkg.ServerConfig{
-            ReadTimeout:  10 * time.Second,
-            WriteTimeout: 10 * time.Second,
-            EnableHTTP1:  true,
-        },
-        PluginConfig: pkg.PluginConfig{
-            Enabled:   true,
-            Directory: "./plugins",
-            Plugins: []pkg.PluginLoadConfig{
-                {
-                    Name:    "auth-plugin",
-                    Enabled: true,
-                    Path:    "./plugins/auth-plugin",
-                    Config: map[string]interface{}{
-                        "jwt_secret": "my-secret-key",
-                    },
-                    Permissions: pkg.PluginPermissions{
-                        AllowDatabase: true,
-                        AllowCache:    true,
-                        AllowRouter:   true,
-                    },
-                },
-                {
-                    Name:    "logging-plugin",
-                    Enabled: true,
-                    Path:    "./plugins/logging-plugin",
-                    Config: map[string]interface{}{
-                        "log_level": "info",
-                    },
-                },
-            },
-        },
-    }
-    
-    app, err := pkg.New(config)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Plugins are automatically loaded and initialized
-    
-    router := app.Router()
-    router.GET("/", func(ctx pkg.Context) error {
-        return ctx.JSON(200, map[string]string{
-            "message": "Server with plugins running!",
-        })
-    })
-    
-    log.Fatal(app.Listen(":8080"))
-}
-```
-
-### Loading Plugins Dynamically
-
-```go
-// Get plugin manager
-pluginManager := app.PluginManager()
-
-// Load a plugin at runtime
-err := pluginManager.LoadPlugin("./plugins/my-plugin", pkg.PluginConfig{
-    Enabled: true,
-    Config: map[string]interface{}{
-        "setting": "value",
-    },
-})
-
-// Check if plugin is loaded
-if pluginManager.IsLoaded("my-plugin") {
-    log.Println("Plugin loaded successfully")
-}
-
-// Get plugin information
-plugins := pluginManager.ListPlugins()
-for _, info := range plugins {
-    log.Printf("Plugin: %s v%s - Status: %s", 
-        info.Name, info.Version, info.Status)
-}
-```
-
-### Hot Reloading Plugins
-
-```go
-// Reload a plugin without restarting the server
-err := pluginManager.ReloadPlugin("my-plugin")
-if err != nil {
-    log.Printf("Failed to reload plugin: %v", err)
-}
-```
-
-### Monitoring Plugin Health
-
-```go
-// Get health status for a specific plugin
-health := pluginManager.GetPluginHealth("my-plugin")
-log.Printf("Plugin Status: %s", health.Status)
-log.Printf("Error Count: %d", health.ErrorCount)
-
-// Get health for all plugins
-allHealth := pluginManager.GetAllHealth()
-for name, health := range allHealth {
-    log.Printf("%s: %s (errors: %d)", name, health.Status, health.ErrorCount)
-}
-```
-
-### Example Plugins
-
-The framework includes several example plugins in `examples/plugins/`:
-
-- **minimal-plugin**: Basic plugin structure
-- **auth-plugin**: Authentication hooks and middleware
-- **logging-plugin**: Request/response logging
-- **cache-plugin**: Caching middleware
-
-To use an example plugin:
-
-```bash
-# Copy the plugin to your plugins directory
-cp -r examples/plugins/auth-plugin ./plugins/
-
-# Update your configuration to load it
-# (see configuration example above)
-
-# Run your application
-go run main.go
-```
-
-### Creating Your Own Plugin
-
-See the [Plugin Development Guide](PLUGIN_DEVELOPMENT.md) for detailed instructions on creating custom plugins.
-
-Basic plugin structure:
-
-```go
-package main
-
-import "github.com/rockstar-framework/pkg"
-
-type MyPlugin struct {
-    ctx pkg.PluginContext
-}
-
-func (p *MyPlugin) Name() string        { return "my-plugin" }
-func (p *MyPlugin) Version() string     { return "1.0.0" }
-func (p *MyPlugin) Description() string { return "My custom plugin" }
-func (p *MyPlugin) Author() string      { return "Your Name" }
-
-func (p *MyPlugin) Initialize(ctx pkg.PluginContext) error {
-    p.ctx = ctx
-    
-    // Register hooks, middleware, routes, etc.
-    ctx.RegisterHook(pkg.HookTypeStartup, 100, func(hctx pkg.HookContext) error {
-        p.ctx.Logger().Info("Plugin initialized")
-        return nil
-    })
-    
-    return nil
-}
-
-func (p *MyPlugin) Start() error   { return nil }
-func (p *MyPlugin) Stop() error    { return nil }
-func (p *MyPlugin) Cleanup() error { return nil }
-
-func (p *MyPlugin) Dependencies() []pkg.PluginDependency {
-    return []pkg.PluginDependency{}
-}
-
-func (p *MyPlugin) ConfigSchema() map[string]interface{} {
-    return map[string]interface{}{}
-}
-
-func (p *MyPlugin) OnConfigChange(config map[string]interface{}) error {
-    return nil
-}
-
-// Plugin entry point
-func NewPlugin() pkg.Plugin {
-    return &MyPlugin{}
-}
-```
-
-## Summary
-
-You've learned:
-- ✅ How to install the framework
-- ✅ How to create your first application
-- ✅ Understanding of core concepts (Framework, Context, Router)
-- ✅ How to build a simple API
-- ✅ How to use the plugin system
-- ✅ Common patterns and best practices
-
-Continue learning by exploring the examples and documentation!
-
----
-
-Happy coding with Rockstar! 🎸
+- [← Back to Installation](INSTALLATION.md)
+- [Next: Configuration Guide →](guides/configuration.md)

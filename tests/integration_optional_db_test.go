@@ -116,7 +116,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19201"); err != nil {
+		if err := framework.Listen(":19211"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -127,7 +127,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 
 	// Test health check
 	t.Run("Health check", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19201/health")
+		resp, err := http.Get("http://localhost:19211/health")
 		assertNoError(t, err, "Health check request failed")
 		defer resp.Body.Close()
 
@@ -149,7 +149,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 		jsonData, err := json.Marshal(itemData)
 		assertNoError(t, err, "Failed to marshal JSON")
 
-		resp, err := http.Post("http://localhost:19201/items", "application/json", bytes.NewBuffer(jsonData))
+		resp, err := http.Post("http://localhost:19211/items", "application/json", bytes.NewBuffer(jsonData))
 		assertNoError(t, err, "Create item request failed")
 		defer resp.Body.Close()
 
@@ -165,7 +165,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 
 	// Test listing items
 	t.Run("List items", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19201/items")
+		resp, err := http.Get("http://localhost:19211/items")
 		assertNoError(t, err, "List items request failed")
 		defer resp.Body.Close()
 
@@ -189,7 +189,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 		jsonData, err := json.Marshal(itemData)
 		assertNoError(t, err, "Failed to marshal JSON")
 
-		createResp, err := http.Post("http://localhost:19201/items", "application/json", bytes.NewBuffer(jsonData))
+		createResp, err := http.Post("http://localhost:19211/items", "application/json", bytes.NewBuffer(jsonData))
 		assertNoError(t, err, "Create item request failed")
 
 		var createdItem map[string]interface{}
@@ -200,7 +200,7 @@ func TestIntegrationCompleteApplicationWithoutDatabase(t *testing.T) {
 		itemID := createdItem["id"].(string)
 
 		// Now get the specific item
-		resp, err := http.Get("http://localhost:19201/items/" + itemID)
+		resp, err := http.Get("http://localhost:19211/items/" + itemID)
 		assertNoError(t, err, "Get item request failed")
 		defer resp.Body.Close()
 
@@ -307,7 +307,7 @@ func TestIntegrationMixedScenario(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19202"); err != nil {
+		if err := framework.Listen(":19212"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -319,7 +319,7 @@ func TestIntegrationMixedScenario(t *testing.T) {
 	// Test session-based login (using in-memory storage)
 	var sessionCookie string
 	t.Run("Login with in-memory session", func(t *testing.T) {
-		resp, err := http.Post("http://localhost:19202/login", "application/json", bytes.NewBufferString("{}"))
+		resp, err := http.Post("http://localhost:19212/login", "application/json", bytes.NewBufferString("{}"))
 		assertNoError(t, err, "Login request failed")
 		defer resp.Body.Close()
 
@@ -346,7 +346,7 @@ func TestIntegrationMixedScenario(t *testing.T) {
 	// Test accessing profile with session (using in-memory storage)
 	t.Run("Access profile with in-memory session", func(t *testing.T) {
 		client := &http.Client{}
-		req, err := http.NewRequest("GET", "http://localhost:19202/profile", nil)
+		req, err := http.NewRequest("GET", "http://localhost:19212/profile", nil)
 		assertNoError(t, err, "Failed to create request")
 
 		// Add session cookie
@@ -372,7 +372,7 @@ func TestIntegrationMixedScenario(t *testing.T) {
 
 	// Test metrics collection (using in-memory storage)
 	t.Run("Metrics collection in memory", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19202/metrics")
+		resp, err := http.Get("http://localhost:19212/metrics")
 		assertNoError(t, err, "Metrics request failed")
 		defer resp.Body.Close()
 
@@ -448,7 +448,7 @@ func TestIntegrationGracefulShutdownWithoutDatabase(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19203"); err != nil {
+		if err := framework.Listen(":19213"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -458,7 +458,7 @@ func TestIntegrationGracefulShutdownWithoutDatabase(t *testing.T) {
 
 	// Test fast request before shutdown
 	t.Run("Fast request before shutdown", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19203/fast")
+		resp, err := http.Get("http://localhost:19213/fast")
 		assertNoError(t, err, "Fast request failed")
 		defer resp.Body.Close()
 
@@ -475,7 +475,7 @@ func TestIntegrationGracefulShutdownWithoutDatabase(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 
-			resp, err := http.Get("http://localhost:19203/slow")
+			resp, err := http.Get("http://localhost:19213/slow")
 			if err == nil {
 				defer resp.Body.Close()
 				if resp.StatusCode == 200 {
@@ -522,7 +522,7 @@ func TestIntegrationGracefulShutdownWithoutDatabase(t *testing.T) {
 		// Give the server a moment to fully close
 		time.Sleep(100 * time.Millisecond)
 
-		resp, err := http.Get("http://localhost:19203/fast")
+		resp, err := http.Get("http://localhost:19213/fast")
 		if err == nil {
 			defer resp.Body.Close()
 			// If we get a response, it should be an error status or connection refused
@@ -691,7 +691,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19204"); err != nil {
+		if err := framework.Listen(":19214"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -712,7 +712,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 		jsonData, err := json.Marshal(userData)
 		assertNoError(t, err, "Failed to marshal JSON")
 
-		resp, err := http.Post("http://localhost:19204/register", "application/json", bytes.NewBuffer(jsonData))
+		resp, err := http.Post("http://localhost:19214/register", "application/json", bytes.NewBuffer(jsonData))
 		assertNoError(t, err, "Registration request failed")
 		defer resp.Body.Close()
 
@@ -734,7 +734,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 		jsonData, err := json.Marshal(userData)
 		assertNoError(t, err, "Failed to marshal JSON")
 
-		resp, err := http.Post("http://localhost:19204/register", "application/json", bytes.NewBuffer(jsonData))
+		resp, err := http.Post("http://localhost:19214/register", "application/json", bytes.NewBuffer(jsonData))
 		assertNoError(t, err, "Registration request failed")
 		defer resp.Body.Close()
 
@@ -748,7 +748,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 		jsonData, err := json.Marshal(loginData)
 		assertNoError(t, err, "Failed to marshal JSON")
 
-		resp, err := http.Post("http://localhost:19204/login", "application/json", bytes.NewBuffer(jsonData))
+		resp, err := http.Post("http://localhost:19214/login", "application/json", bytes.NewBuffer(jsonData))
 		assertNoError(t, err, "Login request failed")
 		defer resp.Body.Close()
 
@@ -773,7 +773,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 	})
 
 	t.Run("Get user profile", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19204/users/" + testUsername)
+		resp, err := http.Get("http://localhost:19214/users/" + testUsername)
 		assertNoError(t, err, "Get user request failed")
 		defer resp.Body.Close()
 
@@ -789,7 +789,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 
 	t.Run("Get authenticated user data", func(t *testing.T) {
 		client := &http.Client{}
-		req, err := http.NewRequest("GET", "http://localhost:19204/me", nil)
+		req, err := http.NewRequest("GET", "http://localhost:19214/me", nil)
 		assertNoError(t, err, "Failed to create request")
 
 		// Add session cookie
@@ -813,7 +813,7 @@ func TestIntegrationEndToEndFlowsWithoutDatabase(t *testing.T) {
 	})
 
 	t.Run("Unauthenticated access fails", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19204/me")
+		resp, err := http.Get("http://localhost:19214/me")
 		assertNoError(t, err, "Request failed")
 		defer resp.Body.Close()
 
@@ -888,7 +888,7 @@ func TestIntegrationConcurrentOperationsWithoutDatabase(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19205"); err != nil {
+		if err := framework.Listen(":19215"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -907,7 +907,7 @@ func TestIntegrationConcurrentOperationsWithoutDatabase(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 
-				resp, err := http.Post("http://localhost:19205/increment", "application/json", bytes.NewBufferString("{}"))
+				resp, err := http.Post("http://localhost:19215/increment", "application/json", bytes.NewBufferString("{}"))
 				if err != nil {
 					t.Logf("Request %d failed: %v", id, err)
 					return
@@ -923,7 +923,7 @@ func TestIntegrationConcurrentOperationsWithoutDatabase(t *testing.T) {
 		wg.Wait()
 
 		// Verify final counter value
-		resp, err := http.Get("http://localhost:19205/counter")
+		resp, err := http.Get("http://localhost:19215/counter")
 		assertNoError(t, err, "Get counter request failed")
 		defer resp.Body.Close()
 
@@ -990,7 +990,7 @@ func TestIntegrationBackwardCompatibility(t *testing.T) {
 
 	// Start server in background
 	go func() {
-		if err := framework.Listen(":19206"); err != nil {
+		if err := framework.Listen(":19216"); err != nil {
 			t.Logf("Server error: %v", err)
 		}
 	}()
@@ -1001,7 +1001,7 @@ func TestIntegrationBackwardCompatibility(t *testing.T) {
 
 	// Test that routes work with database
 	t.Run("Routes work with database", func(t *testing.T) {
-		resp, err := http.Get("http://localhost:19206/health")
+		resp, err := http.Get("http://localhost:19216/health")
 		assertNoError(t, err, "Health check request failed")
 		defer resp.Body.Close()
 

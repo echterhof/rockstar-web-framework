@@ -20,6 +20,7 @@ type mockContext struct {
 	body    []byte
 	params  map[string]string
 	query   map[string]string
+	values  map[string]interface{}
 }
 
 func newMockContext() *mockContext {
@@ -28,6 +29,7 @@ func newMockContext() *mockContext {
 		headers: make(map[string]string),
 		params:  make(map[string]string),
 		query:   make(map[string]string),
+		values:  make(map[string]interface{}),
 	}
 }
 
@@ -98,6 +100,21 @@ func (m *mockContext) FormValue(key string) string                { return "" }
 func (m *mockContext) FormFile(key string) (*pkg.FormFile, error) { return nil, nil }
 func (m *mockContext) IsAuthenticated() bool                      { return m.user != nil }
 func (m *mockContext) IsAuthorized(resource, action string) bool  { return false }
+
+func (m *mockContext) Set(key string, value interface{}) {
+	if m.values == nil {
+		m.values = make(map[string]interface{})
+	}
+	m.values[key] = value
+}
+
+func (m *mockContext) Get(key string) (interface{}, bool) {
+	if m.values == nil {
+		return nil, false
+	}
+	value, exists := m.values[key]
+	return value, exists
+}
 
 // mockVirtualFS is a mock implementation of VirtualFS for testing
 type mockVirtualFS struct{}

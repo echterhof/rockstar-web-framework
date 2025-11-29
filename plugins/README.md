@@ -404,13 +404,6 @@ func TestMyPlugin(t *testing.T) {
 9. **Export services** - Make functionality reusable
 10. **Subscribe to events** - Enable inter-plugin communication
 
-## Documentation
-
-- [Plugin System Overview](../docs/PLUGIN_SYSTEM.md)
-- [Plugin Development Guide](../docs/PLUGIN_DEVELOPMENT.md)
-- [API Reference](../docs/API_REFERENCE.md)
-- [Template Plugin](template/README.md)
-
 ## Contributing
 
 To contribute a new plugin:
@@ -419,7 +412,3 @@ To contribute a new plugin:
 2. Write comprehensive tests
 3. Document configuration and usage
 4. Submit a pull request
-
-## License
-
-These plugins are part of the Rockstar Web Framework and are provided under the same license.
