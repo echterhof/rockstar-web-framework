@@ -13,6 +13,8 @@ Welcome to the Rockstar Web Framework v1.0.0 documentation. This comprehensive g
 
 **Version:** 1.0.0 | **Location:** Documentation Home
 
+![Rockstar gopher with guitar](images/gopher_guitar.webp)
+
 ---
 
 ## 🚀 Quick Start
